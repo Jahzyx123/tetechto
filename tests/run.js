@@ -337,6 +337,104 @@ section("Instrumental safety & banned max-energy words");
   ok(!/no vocals/.test(E.buildStylePrompt(s)), "safety line only added in instrumental mode");
 }
 
+/* ---------------- vocal-cue neutralization (output-time) ---------------- */
+section("Vocal-cue neutralization (output-time)");
+{
+  /* Every word Suno can read as a human vocal (second-wave audit). The
+     negated policy line and vocal-mode directions are tested separately. */
+  /* breathless / breathtaking / Breather are idioms, not vocal cues — the
+     breath pattern targets only the words that are rewritten (breath,
+     breathing, breathes, breathe, breathed, breathy, breath-like). */
+  const CUE = /\b(?:hoovers?|hum(?:s|ming|med)?|songs?|hymns?|psalms?|gospel\w*|operas?\b|operatic|throat\w*|tenors?|alto\b|baritones?|sopranos?|croon\w*|sing(?:s|ing|er|ers|able)?\b|chorus(?:es)?\b|verses?|choirs?\b|choral|chants?\b|lullab(?:y|ies)\b|doo-?wops?|whistl\w*|sighs?|call[\s-]+and[\s-]+response|voices?\b|vocals?\b|breath(?:ing|ed|y|s|like)?\b|crowds?\b|shout\w*|scream\w*|whisper\w*|cheers?\b|arias?|words?)\b/i;
+  const safeTail = [/\bwithout any movement words\b/];
+  const tail = (t, re) => t.replace(re, "\u0000");
+  let leaked = 0, checked = 0;
+  for (let i = 0; i < 80; i++) {
+    const s = E.defaultState();
+    s.techOnly = i % 2 === 0;
+    s.instrumental = i % 3 !== 0;
+    s.vocalMode = !s.instrumental && i % 4 === 3;
+    s.maxStyle = i % 5 === 0;
+    E.roll(s, "everything", { mode: s.maxStyle ? "max" : undefined, tries: s.maxStyle ? 24 : 8 });
+    const sp = E.buildStylePrompt(s);
+    const fb = E.buildFullBrief(s);
+    /* park the negated policy (style prompt tail / brief policy section)
+       and the vocal-mode direction tail before scanning */
+    const spClean = s.vocalMode ? sp.slice(0, sp.search(/vocal:/)) :
+      s.instrumental ? sp.slice(0, sp.search(/no vocals/)) : sp;
+    const fbClean = fb.replace(/VOCAL POLICY[\s\S]*/, "");
+    for (const [name, x] of [["Style Prompt", spClean], ["Full Brief", fbClean]]) {
+      checked++;
+      let y = x;
+      for (const re of safeTail) y = y.replace(re, "");
+      const m = y.match(CUE);
+      if (m) { leaked++; if (leaked <= 5) console.log("  ✗ leak " + name + ": [" + m[0] + "] in: " + y.slice(0, 220)); }
+    }
+  }
+  ok(leaked === 0, "no vocal cue token reaches Style Prompt or Full Brief (" + checked + " scans)");
+
+  /* idempotency: a second pass over the emitted prompts changes nothing */
+  let nonIdem = 0;
+  for (let i = 0; i < 40; i++) {
+    const s = E.defaultState();
+    s.techOnly = i % 2 === 0; s.instrumental = i % 2 === 0;
+    E.roll(s, "everything");
+    const sp = E.buildStylePrompt(s), fb = E.buildFullBrief(s);
+    if (P.stripVocalCue(sp) !== sp || P.stripVocalCue(fb) !== fb) nonIdem++;
+  }
+  ok(nonIdem === 0, "stripVocalCue is idempotent on emitted prompts");
+
+  /* unit-level: the target rewrites, musically equivalent */
+  const pairs = [
+    ["Hoover Techno", "Super-saw Techno"],
+    ["hoover stabs", "super-saw stabs"],
+    ["temple hum", "temple drone"],
+    ["a rhythm that hums the melody", "a rhythm that shadows the melody"],
+    ["Native Flute Song", "Native Flute Melody"],
+    ["River Songs", "River Melodies"],
+    ["MACHINE HYMN", "MACHINE ANTHEM"],
+    ["gospel groove", "church groove"],
+    ["opera-house kick", "concert-hall kick"],
+    ["Space Opera", "Space saga"],
+    ["Tuvan Throat", "Tuvan overtone"],
+    ["throat singing", "overtone"],
+    ["tenor sax lead", "sax lead"],
+    ["baritone guitar", "low guitar"],
+    ["Partido Alto", "Partido"],
+    ["train whistle", "train horn"],
+    ["Penny Whistle", "Penny pipes"],
+    ["stadium rave chant", "stadium rave swell"],
+    ["formant choir", "formant shaper"],
+    ["Turbine Lullaby", "Turbine Cradle"],
+    ["Doowop", "Jukebox"],
+    ["Gravity of a Sigh", "Gravity of a Pause"],
+    ["call-and-response bassline", "question-answer bassline"],
+    ["bass hovering under the vocal", "bass hovering under the lead"],
+    ["two voices learning each other's names", "two lines learning each other's names"],
+    ["human breath groove", "human-groove pulse"],
+    ["breathing curve", "pulsing curve"],
+    ["one word of direction", "one note of direction"],
+    ["a weather radio with no words", "a weather radio with no broadcast"],
+    ["two glass towers talk", "two glass towers signal"],
+    ["Crowd Surge", "Festival Surge"],
+    ["screaming distortion", "scorching distortion"],
+    ["Aria Pop", "Showpiece Pop"]
+  ];
+  for (const [inp, want] of pairs) ok(P.stripVocalCue(inp) === want,
+    `vocal cue rewritten musically: "${inp}" -> "${P.stripVocalCue(inp)}"`);
+
+  /* protected lines are never rewritten */
+  ok(P.stripVocalCue(D.SAFETY_LINE) === D.SAFETY_LINE, "negated SAFETY_LINE byte-identical");
+  ok(P.stripVocalCue("instrumental house, no vocals/lyrics/chants/choir/spoken words")
+     === "instrumental house, no vocals/lyrics/chants/choir/spoken words", "compact policy line byte-identical");
+  ok(D.VOCAL_DIRECTIONS.every(d => P.stripVocalCue("vocal: " + d) === "vocal: " + d),
+    "every vocal-mode direction survives stripVocalCue untouched (" + D.VOCAL_DIRECTIONS.length + ")");
+  /* proper nouns and non-vocal terms stay */
+  for (const keep of ["Songkran", "Songo", "Hooligan", "talking drum phrases", "breathless", "Breather", "humanized", "single note"]) {
+    ok(P.stripVocalCue(keep) === keep, "non-vocal term untouched: " + keep);
+  }
+}
+
 /* ---------------- pool integrity ---------------- */
 section("Pool integrity");
 {
@@ -534,9 +632,12 @@ section("Style Prompt density (sound packing)");
     E.roll(s, "everything");
     const sp = E.buildStylePrompt(s);
     if (sp.length > 1000) over++;
-    /* the builder tightens doubled words out of names, so compare
-       against the same transform rather than the raw pool string */
-    if (![s.primaryStyle, P.tightenPhrase(s.primaryStyle), P.stripLive(s.primaryStyle), P.tightenPhrase(P.stripLive(s.primaryStyle))].some(f => f && sp.includes(f))) styleLost++;
+    /* the builder tightens doubled words out of names and neutralizes
+       vocal cues at output, so compare against the same transforms rather
+       than the raw pool string */
+    if (![s.primaryStyle, P.tightenPhrase(s.primaryStyle), P.stripLive(s.primaryStyle),
+          P.tightenPhrase(P.stripLive(s.primaryStyle))].flatMap(x => x ? [x, P.stripVocalCue(x)] : [])
+        .some(f => f && sp.includes(f))) styleLost++;
     if (sp.length < 880) waste++;
     worstLen = Math.max(worstLen, sp.length);
     hits += KEYS.filter(k => s[k] && sp.includes(s[k])).length;
@@ -1036,14 +1137,16 @@ section("No \"voicing\" vocal cue anywhere in the output");
   ]) ok(stripVocalCue(input) === want,
        `stripVocalCue "${input}" -> "${want}" (got "${stripVocalCue(input)}")`);
 
-  for (const keep of ["vocal melody on the second line", "hum in the room", "Vocal: soft, floating", "Voiceless whisper text", "avocado on toast"])
+  for (const keep of ["Vocal: soft, floating", "avocado on toast"])
     ok(stripVocalCue(keep) === keep, `stripVocalCue leaves "${keep}" alone (no over-stripping)`);
 
-  /* Actually intended vocal content must survive the rewrite: only the
-     neutral instrumental "voice-like" words are rewritten, never the real
-     vocal concepts. */
-  ok(/vocal melody on the second line/.test(stripVocalCue("vocal melody on the second line")),
-    "real vocal concept untouched by stripVocalCue");
+  /* Intended vocal content lives only behind the "vocal:" prefix (vocal
+     mode) or inside the negated no-vocals policy. Any pool word that can
+     cue Suno's vocal background is neutralized at output instead. */
+  ok(stripVocalCue("vocal melody on the second line") === "lead melody on the second line",
+    "vocal melody rewritten to lead melody at output");
+  ok(stripVocalCue("hum in the room") === "drone in the room", "hum rewritten to drone at output");
+  ok(stripVocalCue("Voiceless whisper text") === "Voiceless hush text", "whisper rewritten to hush at output");
 
   let spVoicing = 0, spVocal = 0, fbVoicing = 0, fbVocal = 0;
   for (let i = 0; i < 200; i++) {
@@ -1146,8 +1249,10 @@ section("Style pool expansion");
     E.roll(s, "everything");
     const sp = E.buildStylePrompt(s);
     const alt = s.techOnly ? s.primaryStyle : E.genreSafeText(s, s.primaryStyle, true);
-    /* the builder tightens doubled words out of names -- accept that form too */
-    const forms = [s.primaryStyle, alt].flatMap(x => x ? [x, P.tightenPhrase(x), P.stripLive(x), P.tightenPhrase(P.stripLive(x))] : []);
+    /* the builder tightens doubled words out of names and neutralizes
+       vocal cues at output -- accept those forms too */
+    const forms = [s.primaryStyle, alt].flatMap(x => x ?
+      [x, P.tightenPhrase(x), P.stripLive(x), P.tightenPhrase(P.stripLive(x)), P.stripVocalCue(x)] : []);
     if (!forms.some(f => f && sp.includes(f))) lost++;
   }
   ok(lost === 0, "style name survives into every prompt across 200 rolls (" + lost + " lost)");

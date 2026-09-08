@@ -154,23 +154,42 @@ export function tightenPhrase(v) {
   return t.replace(/\s+/g, " ").trim();
 }
 
-/* Suno hears the word "voice" INSIDE "voicing" as a human vocal and
-   answers with ad-libs - "hey", "houuu" - even in instrumental prompts.
-   "Voicing" is a harmony term (close voicing, drop-2 voicing, shell
-   voicing...), so rewrite it to a neutral equivalent at the output: same
-   musical information, no vocal cue. Unconditional - it never means
-   vocals, and the old sanitizer missed it because \bvoice\b has no
-   word boundary inside "voicing". */
+/* Suno hears a human vocal cue in prompt words that have nothing to do
+   with singing — "voicing" (a harmony term), "hoover" (a rave lead-saw),
+   "hum" (machinery), "song" (a melody), whistle, choir, chant, and so on —
+   and answers with ad-libs: "hey", "houuu", vocal background, lyrics.
+
+   This is the single output-time rewrite point: every pool value flows
+   through here before it reaches the prompt, so no data file has to change.
+   Each replacement keeps the musical meaning (tenor sax -> sax, train
+   whistle -> train horn, hum -> drone) and every rule is idempotent, so
+   calling it again on already-rewritten text is a no-op.
+
+   Two things are NEVER rewritten: the explicit negated no-vocals policy
+   ("no vocals, no lyrics, no chants, no choir...") and the vocal-mode-only
+   directions (VOCAL_DIRECTIONS). Both are parked on sentinel placeholders
+   before any rule runs and restored untouched at the end. */
 export function stripVocalCue(text) {
   let t = String(text || "");
-  const cap1 = (m, c) => m[0] === m[0].toUpperCase()
-    ? c.charAt(0).toUpperCase() + c.slice(1) : c;
+  const cap1 = (m, c) => m[0] === m[0].toUpperCase() && m === m.toUpperCase()
+    ? c.toUpperCase()
+    : m[0] === m[0].toUpperCase()
+      ? c.charAt(0).toUpperCase() + c.slice(1) : c;
+  /* --- protect policy lines: the negated no-vocals line and any "vocal:"
+     direction line are the only places those words are intended, so they
+     must survive every rule below byte-for-byte. --- */
+  const keep = [];
+  const park = (m) => { keep.push(m); return "\u0001" + (keep.length - 1) + "\u0001"; };
+  const unPark = (x) => x.replace(/\u0001(\d+)\u0001/g, (m, i) => keep[+i] !== undefined ? keep[+i] : m);
+  t = t.replace(/\bvocal:\s*[^.!?\n]*/gi, park);
+  t = t.replace(/\bno\s+(?:vocals?|lyrics?|screaming|screams?|chants?|choirs?|spoken|shouts?|singing|songs?|verses?|choruses?)[^.!?\n]*/gi, park);
+
   /* "chord voicings" -> "chord spreads" / "chord voicing" -> "chord spread"
      (never "chord chord spreads") */
   t = t.replace(/\b(chords?)\s+voicings?\b/gi, (m, c) => cap1(m, c + (/s$/i.test(m) ? " spreads" : " spread")));
   /* every remaining "voicing(s)" is a harmony arrangement term */
   t = t.replace(/\bvoicings?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "chord spreads" : "chord spread"));
-  t = t.replace(/\bvoice-led\b/gi, (m) => cap1(m, "smoothly-led"));
+  t = t.replace(/\bvoice[\s-]+led\b/gi, (m) => cap1(m, "smoothly-led"));
   t = t.replace(/\bvocal-like\b/gi, (m) => cap1(m, "humanized"));
   /* "singable" is a melody descriptor (catchy/melodic), not an instruction
      to add a voice — but Suno reads it as singing, so neutralize it. */
@@ -180,7 +199,162 @@ export function stripVocalCue(text) {
      it as vocals, so neutralize the ensemble cue. */
   t = t.replace(/\bbarbershop-style\b/gi, (m) => cap1(m, "close-harmony"));
   t = t.replace(/\bvocal\s+formant\b|\bformant\s+vocal\b/gi, (m) => cap1(m, "formant"));
-  return t;
+
+  /* ================= second wave: the full vocal-cue audit =================
+     Phrase rules first (they keep grammar and register), then the generic
+     word rules. Everything is case-preserving and idempotent. */
+
+  /* hoover = rave lead-saw (Hoover Techno, hoover stabs/bass/blasts) */
+  t = t.replace(/\bhoovers?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "super-saws" : "super-saw"));
+
+  /* hum = machinery/melody drone, never a hummed vocal */
+  t = t.replace(/\bhums\s+a\s+lullaby\b/gi, (m) => cap1(m, "drones a cradle pulse"));
+  t = t.replace(/\ba\s+lullaby\s+a\s+machine\s+hums\s+to\s+itself\b/gi, (m) => cap1(m, "a cradle pulse a machine drones to itself"));
+  t = t.replace(/\bhums?\s+(?:the|a)\s+melody\b/gi, (m) => cap1(m, "shadows " + (/\bthe\b/i.test(m) ? "the" : "a") + " melody"));
+  t = t.replace(/\byou\s+can\s+hum\b/gi, (m) => cap1(m, "you can carry"));
+  t = t.replace(/\byou\s+hum\b/gi, (m) => cap1(m, "you carry"));
+  t = t.replace(/\bhumming\b/gi, (m) => cap1(m, "droning"));
+  t = t.replace(/\bhummed\b/gi, (m) => cap1(m, "droned"));
+  t = t.replace(/\bhums?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "drones" : "drone"));
+
+  /* song(s) = melody/piece; Songkran and Songo stay (no word boundary) */
+  t = t.replace(/\bsong\s+length\b/gi, (m) => cap1(m, "track length"));
+  t = t.replace(/\bsongs?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "melodies" : "melody"));
+
+  /* hymn/psalm = sacred anthem (MACHINE HYMN, Engine-Room Hymn) */
+  t = t.replace(/\bhymns?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "anthems" : "anthem"));
+  t = t.replace(/\bpsalms?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "anthems" : "anthem"));
+
+  /* gospel = church-approved groove (gospel kit/kick/harmony, Gospel Neo-Soul) */
+  t = t.replace(/\bgospel\b/gi, (m) => cap1(m, "church"));
+
+  /* opera house = concert hall; space opera = space saga; operatic = theatrical */
+  t = t.replace(/\bopera[\s-]+house\b/gi, (m) => cap1(m, "concert-hall"));
+  t = t.replace(/\bspace\s+opera\b/gi, (m) => cap1(m, "space saga"));
+  t = t.replace(/\bopera\s+soprano\b/gi, (m) => cap1(m, "concert-hall high"));
+  t = t.replace(/\boperatic\b/gi, (m) => cap1(m, "theatrical"));
+  t = t.replace(/\bopera\b/gi, (m) => cap1(m, "concert"));
+
+  /* throat = overtone/growl texture (Tuvan Throat, full-throated energy) */
+  t = t.replace(/\b(Mongolian|Tuvan)\s+throat\b/gi, (m, g) => cap1(m, g + " overtone"));
+  t = t.replace(/\bthroat\s+singing\b/gi, (m) => cap1(m, "overtone"));
+  t = t.replace(/\bthroat\s+wind\b/gi, (m) => cap1(m, "overtone wind"));
+  t = t.replace(/\bfull-throated\b/gi, (m) => cap1(m, "full-bodied"));
+  t = t.replace(/\bthroaty\b/gi, (m) => cap1(m, "growl"));
+
+  /* vocal registers on instruments = register adjectives (soprano/tenor/
+     alto/baritone). "Partido Alto" is a samba rhythm, not a register. */
+  t = t.replace(/\b(?:tenor|alto|baritone|soprano)\s+saxophones?\b/gi, (m) => cap1(m, "saxophone"));
+  t = t.replace(/\b(?:tenor|alto|baritone|soprano)\s+sax\b/gi, (m) => cap1(m, "sax"));
+  t = t.replace(/\bbaritone[\s-]+sax\b/gi, (m) => cap1(m, "sax"));
+  t = t.replace(/\bbaritone\s+guitar\b/gi, (m) => cap1(m, "low guitar"));
+  t = t.replace(/\bbaritone\s+synth\b/gi, (m) => cap1(m, "low synth"));
+  t = t.replace(/\balto\s+flute\b/gi, (m) => cap1(m, "flute"));
+  t = t.replace(/\bpartido\s+alto\b/gi, (m) => cap1(m, "partido"));
+  t = t.replace(/\bbaritone\b/gi, (m) => cap1(m, "low"));
+  t = t.replace(/\balto\b/gi, (m) => cap1(m, "bright"));
+  t = t.replace(/\btenor\b/gi, (m) => cap1(m, "mellow"));
+  t = t.replace(/\bsoprano\b/gi, (m) => cap1(m, "bright"));
+
+  /* croon = mellow; singing bowl = resonant bowl */
+  t = t.replace(/\bcrooners?\b/gi, (m) => cap1(m, "mellow"));
+  t = t.replace(/\bcrooning\b/gi, (m) => cap1(m, "mellow"));
+  t = t.replace(/\bcroon\b/gi, (m) => cap1(m, "mellow tone"));
+  t = t.replace(/\bsinging\s+bowls?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "resonant bowls" : "resonant bowl"));
+  t = t.replace(/\bsings?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "rings" : "ring"));
+  t = t.replace(/\bsinging\b/gi, (m) => cap1(m, "resonant"));
+
+  /* chorus = arrangement drop / ensemble effect (chorus delay, chorused bass) */
+  t = t.replace(/\bchorus\s+delay\b/gi, (m) => cap1(m, "ensemble delay"));
+  t = t.replace(/\bchorus\s+(?:fx|effect)\b/gi, (m) => cap1(m, "ensemble " + (/\bfx\b/i.test(m) ? "fx" : "effect")));
+  t = t.replace(/\bchorused\b/gi, (m) => cap1(m, "detuned"));
+  t = t.replace(/\bchorus(?:es)?\b/gi, (m) => cap1(m, /(?:es)$/i.test(m) ? "drops" : "drop"));
+  /* verse = song-section word, same cue family (verse -> section) */
+  t = t.replace(/\bverses?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "sections" : "section"));
+
+  /* choir = ensemble pad; formant choir = shaper; choral = ensemble */
+  t = t.replace(/\bformant\s+choir\b/gi, (m) => cap1(m, "formant shaper"));
+  t = t.replace(/\bchoir-?backed\b/gi, (m) => cap1(m, "ensemble-backed"));
+  t = t.replace(/\bchoral\b/gi, (m) => cap1(m, "ensemble"));
+  t = t.replace(/\bchoirs?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "ensembles" : "ensemble"));
+
+  /* chant = rave swell (stadium rave chant -> stadium rave swell) */
+  t = t.replace(/\bstadium\s+rave\s+chant\b/gi, (m) => cap1(m, "stadium rave swell"));
+  t = t.replace(/\bchanting\b/gi, (m) => cap1(m, "swelling"));
+  t = t.replace(/\bchants?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "swells" : "swell"));
+
+  /* lullaby = cradle pulse (Turbine Lullaby, Music Box Lullaby Gear) */
+  t = t.replace(/\blullab(?:y|ies)\b/gi, (m) => cap1(m, /s$/i.test(m) ? "cradles" : "cradle"));
+
+  /* doowop = jukebox nostalgia */
+  t = t.replace(/\bdoo-?wops?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "jukeboxes" : "jukebox"));
+
+  /* whistle = pipes/horn/flute (train whistle -> train horn, Penny Whistle
+     -> Penny Pipes, Whistling Western -> Harmonica Western) */
+  t = t.replace(/\bpenny\s+whistles?\b/gi, (m) => cap1(m, "penny pipes"));
+  t = t.replace(/\bceltic\s+whistles?\b/gi, (m) => cap1(m, "celtic pipes"));
+  t = t.replace(/\bwhistling\s+western\b/gi, (m) => cap1(m, "harmonica western"));
+  t = t.replace(/\btrain\s+whistles?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "train horns" : "train horn"));
+  t = t.replace(/\bkettle\s+whistles?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "kettle rings" : "kettle ring"));
+  t = t.replace(/\bslide\s+whistles?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "slide flutes" : "slide flute"));
+  t = t.replace(/\bfactory\s+whistles?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "factory horns" : "factory horn"));
+  t = t.replace(/\bwhistle\s+stop\b/gi, (m) => cap1(m, "flag stop"));
+  t = t.replace(/\byou\s+whistle\b/gi, (m) => cap1(m, "you carry"));
+  t = t.replace(/\bwhistling\b/gi, (m) => cap1(m, "piping"));
+  t = t.replace(/\bwhistles?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "pipes" : "pipe"));
+
+  /* sigh = pause (Gravity of a Sigh -> Gravity of a Pause) */
+  t = t.replace(/\bsighs?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "pauses" : "pause"));
+
+  /* call-and-response = instrumental trading (question-answer) */
+  t = t.replace(/\bcall[\s-]+and[\s-]+response\b/gi, (m) => cap1(m, "question-answer"));
+
+  /* voice/vocal = lead line (never the parked policy or directions) */
+  t = t.replace(/\bunder\s+the\s+vocal\b/gi, (m) => cap1(m, "under the lead"));
+  t = t.replace(/\bbehind\s+the\s+vocal\b/gi, (m) => cap1(m, "behind the lead"));
+  t = t.replace(/\bthe\s+melody\s+is\s+a\s+voice\s+arriving\b/gi, (m) => cap1(m, "the melody arrives like a guest"));
+  t = t.replace(/\btwo\s+voices\s+learning\s+each\s+other'?s\s+names\b/gi, (m) => cap1(m, "two lines learning each other's names"));
+  t = t.replace(/\bvocals?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "leads" : "lead"));
+  t = t.replace(/\bvoices?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "lines" : "line"));
+
+  /* breath = pulse/airy (breathing curve -> pulsing curve, breathy flute ->
+     airy flute, breath control -> pulse control) */
+  t = t.replace(/\bhuman\s+breath\s+groove\b/gi, (m) => cap1(m, "human-groove pulse"));
+  t = t.replace(/\bno[\s-]?breath\s+build\b/gi, (m) => cap1(m, "no-pause build"));
+  t = t.replace(/\bbreathy\b/gi, (m) => cap1(m, "airy"));
+  t = t.replace(/\bbreath-?like\b/gi, (m) => cap1(m, "pulse-like"));
+  t = t.replace(/\bbreathing\b/gi, (m) => cap1(m, "pulsing"));
+  t = t.replace(/\bbreathes?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "pulses" : "pulse"));
+  t = t.replace(/\bbreathed\b/gi, (m) => cap1(m, "pulsed"));
+  t = t.replace(/\bbreathe\b/gi, (m) => cap1(m, "pulse"));
+  t = t.replace(/\bbreath\b/gi, (m) => cap1(m, "pulse"));
+
+  /* word/talk = note/broadcast/signal (one word of direction -> one note,
+     weather radio with no words -> no broadcast, towers talk -> signal) */
+  t = t.replace(/\bwith\s+no\s+words?\b/gi, (m) => cap1(m, "with no broadcast"));
+  t = t.replace(/\bone\s+word\s+of\s+direction\b/gi, (m) => cap1(m, "one note of direction"));
+  t = t.replace(/\bfind\s+the\s+single\s+word\b/gi, (m) => cap1(m, "find the single note"));
+  t = t.replace(/\btowers?\s+talk\b/gi, (m) => cap1(m, /\btowers\b/i.test(m) ? "towers signal" : "tower signals"));
+
+  /* crowd = festival energy (Crowd Surge, crowd silence as percussion) */
+  t = t.replace(/\bcrowds?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "festivals" : "festival"));
+
+  /* shout/scream/cheer/whisper = dynamics, not voices (screaming distortion
+     -> scorching distortion, hook that shouts -> surges, whisper -> hush) */
+  t = t.replace(/\bsounds?\s+like\s+a\s+cheer\b/gi, (m) => cap1(m, "sounds like a flare"));
+  t = t.replace(/\bscreaming\s+distortion\b/gi, (m) => cap1(m, "scorching distortion"));
+  t = t.replace(/\bscreaming\s+resonance\b/gi, (m) => cap1(m, "scorching resonance"));
+  t = t.replace(/\bscreaming\b/gi, (m) => cap1(m, "scorching"));
+  t = t.replace(/\bscreams?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "scorches" : "scorch"));
+  t = t.replace(/\bshouting\b/gi, (m) => cap1(m, "surging"));
+  t = t.replace(/\bshouts?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "surges" : "surge"));
+  t = t.replace(/\bwhispering\b/gi, (m) => cap1(m, "hushing"));
+  t = t.replace(/\bwhispers?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "hushes" : "hush"));
+
+  /* aria = showpiece (Aria Pop -> Showpiece Pop) */
+  t = t.replace(/\barias?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "showpieces" : "showpiece"));
+
+  return unPark(t);
 }
 
 
