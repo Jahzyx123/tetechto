@@ -359,7 +359,8 @@ export function defaultState() {
     weirdness: 50, influence: "balanced", duration: "standard", melodicForce: "balanced", slim: false, structure: false,
     acidAmt: 60, driveAmt: 75,
     styleFit: true, lastFitGenre: "", noHandPerc: false,
-    soundLite: false, noStop: false, hideBeats: false
+    soundLite: false, noStop: false, hideBeats: false,
+    maxStyle: false
   };
 }
 

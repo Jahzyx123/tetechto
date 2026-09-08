@@ -66,7 +66,10 @@ const IDENTITY_KEYS = ["primary", "secondary", "genre"];
       another equally-max-scoring variation instead of a dead button. */
 function rollMax(state, scope, keys, opts) {
   const tries = opts.tries || 24;
-  const keepStyle = opts.keepStyle !== false;
+  /* keepStyle: false (or the MAX STYLE toggle) lets MAX also swap
+     primary/secondary style, because a different style can unlock a
+     higher-scoring production. It still never keeps a worse set. */
+  const keepStyle = opts.keepStyle !== false && !opts.maxStyle;
   const rollable = keepStyle ? keys.filter(k => !IDENTITY_KEYS.includes(k)) : keys.slice();
   const startScore = scorePrompt(state).total;
   const startSig = signature(state);
@@ -130,13 +133,20 @@ function rollMax(state, scope, keys, opts) {
 }
 
 function clone(s) { return JSON.parse(JSON.stringify(s)); }
-/* cheap identity of a rolled set, used to detect "actually different" */
+/* cheap identity of a rolled set, used to detect "actually different".
+   Object atoms (concept, melodyConcept, counterMelody, voiceConcept)
+   used to be skipped, so a candidate that only changed a command was
+   treated as "identical" and thrown away. Serialise them now so MAX
+   optimizes commands too. */
+const SIG_Q = (s, k) => {
+  const v = s[k];
+  if (typeof v === "string" || typeof v === "number") return v;
+  if (v && typeof v === "object") return JSON.stringify(v);
+  return "";
+};
 function signature(s) {
   let out = "";
-  for (const k of Object.keys(ROLL_FN)) {
-    const v = s[k];
-    out += typeof v === "string" || typeof v === "number" ? "|" + v : "";
-  }
+  for (const k of Object.keys(ROLL_FN)) out += "|" + SIG_Q(s, k);
   return out + "|" + s.bpm + "|" + s.rootPc + "|" + s.scaleId;
 }
 

@@ -48,21 +48,104 @@ const X = (...lists) => {
 };
 
 /* ---------------- techno styles ---------------- */
-const TQUAL = {
-  core: ["Driving", "Rolling", "Pumping", "Peak-Time", "Warehouse", "Basement", "Late-Night", "Sunrise", "Marathon", "Main-Room", "Terrace", "Afterhours"],
-  sub: ["Hypnotic", "Tribal", "Melodic", "Dub", "Acid", "Broken", "Groove", "Deep", "Raw", "Loopy", "Stripped", "Percussive", "Ambient-Edged", "Electro", "Bleep", "Rave", "Hoover", "Trance-Leaning"],
-  rare: ["Polyrhythmic", "Microtonal", "Granular", "Spectral", "Kinetic", "Brutalist", "Cybernetic", "Subterranean", "Monolithic", "Iridescent", "Glacial", "Volcanic", "Nocturnal", "Astral", "Fractal", "Neon-Soaked", "Rust-Belt", "Cathedral", "Tectonic", "Quantum"]
+/* Curated flavour vocabulary. Every generated name is <prefix>
+   <qualifier> <noun> so a name always reads like a real techno
+   sub-style. Regions/venues/eras put the scene into the style line;
+   motion/character/sound words give Suno an instant production cue.
+   Deduped against the verbatim pool and itself, and free of vocal
+   references (instrumental safety: a "vocal" style name would be
+   dropped by sanitize and could nudge Suno to sing). */
+
+const VOCAL_RE = /\b(vocal|vocals|voice|voices|sing|sings|singing|singer|choir|chants?|lyrics?|spoken|hum|humming|chorus|verse)\b/i;
+
+/* motion: how the groove feels */
+const MOTION = [
+  "Driving", "Rolling", "Pumping", "Bouncy", "Slamming", "Stomping", "Chugging",
+  "Thumping", "Pounding", "Surging", "Sweeping", "Hustling", "Rumbling", "Galvanic",
+  "Relentless", "Charged", "Accelerating", "Pulsing", "Propulsive", "Firm", "Assured"
+];
+/* character: the mood / texture of the style */
+const CHARACTER = [
+  "Hypnotic", "Tribal", "Melodic", "Dubby", "Deep", "Raw", "Loopy", "Percussive",
+  "Acid", "Groove", "Sleek", "Sinuous", "Gritty", "Velvet", "Smoke-Filled",
+  "Iron", "Steel", "Concrete", "Void", "Static", "Pulse", "Vortex", "Spiral",
+  "Neon", "Magnetic", "Electric", "Brutal", "Feral", "Visceral", "Tactile",
+  "Textural", "Cellular", "Molecular", "Stroboscopic", "Prismatic", "Monolithic",
+  "Cathedral", "Holographic", "Ghost", "Phantom", "Spectral", "Hollow", "Ritualistic",
+  "Ceremonial", "Psychedelic", "Cosmic", "Astral", "Lunar", "Solar", "Gravitational",
+  "Entropic", "Thermal", "Atmospheric", "Tectonic", "Abyssal", "Luminous", "Iridescent",
+  "Obsidian", "Basalt", "Tungsten", "Chromium", "Plasma", "Neutron", "Solarized"
+];
+/* scene: where the track belongs */
+const SCENE = [
+  "Warehouse", "Basement", "Bunker", "Tunnel", "Cathedral", "Rooftop", "Terrace",
+  "Main-Room", "Arena", "Stadium", "Open-Air", "Festival", "Afterhours", "Late-Night",
+  "Early-Morning", "Sunrise", "Golden-Hour", "Closing-Set", "Opening-Set", "Night-Drive",
+  "Underground", "Berlin", "Detroit", "Chicago", "London", "Birmingham", "Leeds",
+  "Rotterdam", "Amsterdam", "Frankfurt", "Paris", "Ibiza", "Tokyo", "Manchester",
+  "Belfast", "Glasgow", "NYC", "Los Angeles", "Barcelona", "Milan", "Prague", "Warsaw"
+];
+/* era / sound-design character */
+const TECH = [
+  "Analog", "Modular", "909", "808", "303", "Hardware", "Sequencer", "Sampler",
+  "Tape", "Vinyl", "Dubplate", "Drum-Machine", "Wavetable", "Granular", "FM",
+  "Additive", "Rompler", "Outboard", "Console", "Patchbay", "Eurorack", "Bit-Crushed",
+  "Voltage", "Magnetic", "Stochastic", "Kinetik", "Oscillating", "Rotating", "Orbital"
+];
+/* nouns: what the style IS */
+const NOUNS = {
+  core: ["Techno", "Rave Techno", "Hardgroove", "Tekno"],
+  sub: ["Techno", "Hard Techno", "Dub Techno", "Acid Techno", "Hardgroove", "Schranz",
+        "Rave Techno", "Psy-Techno", "Trance-Techno", "Electro-Techno", "Breakbeat Techno",
+        "Jungle Techno", "Hi-Tech", "Tekno", "Free-Party Tekno", "Hardcore Techno",
+        "Industrial Techno", "EBM Techno", "Detroit Techno", "Berlin Techno",
+        "Bleep Techno", "Warehouse Techno"],
+  rare: ["Techno", "Industrial Techno", "Schranz", "Bleep Techno", "Electro-Techno",
+         "Rave Techno", "Hardcore Techno", "Drone Techno", "Ambient Techno",
+         "Cinematic Techno", "Quantum Techno", "Granular Techno", "Microtonal Techno",
+         "Collage Techno", "Cut-Up Techno", "Glitch Techno", "Noise Techno",
+         "Ritual Techno", "Occult Techno", "Spectral Techno", "Hologram Techno"]
 };
-const TNOUN = {
-  core: ["Techno"],
-  sub: ["Techno", "Hard Techno", "Dub Techno", "Acid Techno", "Hardgroove"],
-  rare: ["Techno", "Industrial Techno", "Schranz", "Bleep Techno", "Electro-Techno", "Rave Techno"]
+const PREFIX = {
+  core: ["", "Classic", "Modern", "Pure", "Ultimate"],
+  sub: ["", "Neo", "Post", "Proto", "Retro", "Hyper"],
+  rare: ["", "Ultra", "Meta", "Trans", "Omega", "Zenith", "Cipher"]
 };
-const TPRE = {
-  core: ["", "Classic", "Modern", "Pure"],
-  sub: ["", "Neo", "Post", "Proto", "Retro"],
-  rare: ["", "Hyper", "Ultra", "Meta", "Trans", "Neo-Brutalist"]
+
+/* merge the flavour lists per tier, keeping only the words that serve it:
+   core = motion + scene + a little character; sub = character + scene +
+   tech; rare = character + tech + scene (most exotic). */
+const FLAVOUR = {
+  core: [...MOTION, ...SCENE, "Peak-Time"],
+  sub: [...CHARACTER, ...SCENE, ...TECH],
+  rare: [...CHARACTER, ...TECH, ...SCENE]
 };
+
+/* a name must not repeat a word ("Acid Acid Techno") — that reads like a
+   typo and wastes prompt characters. */
+function wordsOverlap(a, b) {
+  const wa = new Set(a.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+  return b.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).some(w => wa.has(w));
+}
+
+/* Always include plain "Techno". Every other style is tiered. */
+const EXTRA_STYLES = [{ n: "Techno", c: "core" }];
+const styleSeen = new Set(STYLES.map(s => s.n.toLowerCase()));
+styleSeen.add("techno");
+for (const tier of ["core", "sub", "rare"]) {
+  const cand = shuffle(X(PREFIX[tier], FLAVOUR[tier], NOUNS[tier]));
+  const cap = tier === "core" ? 420 : tier === "sub" ? 840 : 1200;
+  let n = 0;
+  for (const raw of cand) {
+    const t = raw.replace(/\s+/g, " ").trim();
+    if (!t || !ok(t) || VOCAL_RE.test(t) || styleSeen.has(t.toLowerCase())) continue;
+    const parts = t.split(/\s+/);
+    if (parts.length >= 2 && wordsOverlap(parts[parts.length - 2], parts[parts.length - 1])) continue;
+    styleSeen.add(t.toLowerCase());
+    EXTRA_STYLES.push({ n: t, c: tier });
+    if (++n >= cap) break;
+  }
+}
 
 /* ---------------- new non-techno genres ---------------- */
 const NEW_GENRES = [
@@ -114,21 +197,6 @@ const NEW_GENRES = [
 const EXTRA_SUB_QUAL = ["Late-Night", "Sunrise", "Midnight", "Golden-Hour", "Rain-Soaked", "Sunlit", "Winter", "Summer", "Neon", "Velvet", "Smoke-Filled", "Wide-Screen", "Slow-Burn", "Fever-Dream", "Hand-Played", "Room-Recorded", "Festival", "Basement", "Rooftop", "Riverside"];
 
 /* ---------------- build ---------------- */
-const styleSeen = new Set(STYLES.map(s => s.n.toLowerCase()));
-const EXTRA_STYLES = [];
-for (const tier of ["core", "sub", "rare"]) {
-  const cand = shuffle(X(TPRE[tier], TQUAL[tier], TNOUN[tier]));
-  const cap = tier === "core" ? 120 : tier === "sub" ? 240 : 380;
-  let n = 0;
-  for (const raw of cand) {
-    const t = raw.replace(/\s+/g, " ").trim();
-    if (!ok(t) || styleSeen.has(t.toLowerCase())) continue;
-    styleSeen.add(t.toLowerCase());
-    EXTRA_STYLES.push({ n: t, c: tier });
-    if (++n >= cap) break;
-  }
-}
-
 const genreSeen = new Set(GENRES.map(g => String(g.n).toLowerCase()));
 const EXTRA_GENRES = [];
 for (const [name, subs] of NEW_GENRES) {

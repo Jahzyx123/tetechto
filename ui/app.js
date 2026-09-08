@@ -120,12 +120,17 @@ function atomValue(a) {
 let maxClicks = 0;
 function doRoll(scope, mode) {
   const tries = +($("#triesSel") ? $("#triesSel").value : 24);
-  const res = roll(state, scope, { mode: mode || "random", tries, keepStyle: true });
+  /* The Style card's own MAX is the one place style is always in scope —
+     that's its whole job (the card rolls the style). Everywhere else the
+     chip decides: keep style by default, or optimize style too. */
+  const keepStyle = scope === "genre" ? false : !state.maxStyle;
+  const res = roll(state, scope, { mode: mode || "random", tries, keepStyle });
   if (mode === "max") {
+    const styleNote = keepStyle ? "style kept" : "style optimized";
     toast(res.improved
-      ? "⭐ Improved to " + res.score + " in " + res.tries + " tries — style kept"
+      ? "⭐ Improved to " + res.score + " in " + res.tries + " tries — " + styleNote
       : res.variation
-        ? "⭐ Fresh set #" + (++maxClicks) + " at the same top score (" + res.score + ") — style kept"
+        ? "⭐ Fresh set #" + (++maxClicks) + " at the same top score (" + res.score + ") — " + styleNote
         : "⭐ Peak reached (" + res.score + ") — " + res.tries + " tries found nothing better. Reroll or tweak a field to escape it.");
   }
   commit((mode === "max" ? "MAX " : "Roll ") + scope);
@@ -233,6 +238,7 @@ function renderTopbar() {
     <span class="chip ${state.soundLite ? "on" : ""}" id="soundLiteToggle" title="Hide every sound-appearance section (delay, FX, mix, spatial, ensemble) so the Style Prompt fills with melody &amp; pattern; parked sounds are packed back ONLY if there is room left (H)">🔇 SOUND-LITE</span>
     <span class="chip ${state.noStop ? "on" : ""}" id="noStopToggle" title="Non-stop beat: no-break arrangement &amp; energy arc, no [Breakdown] tag, ultra delivery start-to-finish — and it hides the counter/2nd line plus every appearance section &amp; sound (half-time, lazy, samba rolls, fills, open-ride, drops, risers, Ensemble/Tone/Mix/Space/Texture/FX) (N)">⛓ NO-STOP</span>
     <span class="chip ${state.hideBeats ? "on" : ""}" id="hideBeatsToggle" title="Melody-only: remove all drums, beats, bass &amp; every sound-maker across the whole prompt — only the style, melody and pattern command text remains, so nothing extra appears in the song (B)">🥁 HIDE BEATS</span>
+    <span class="chip ${state.maxStyle ? "on" : ""}" id="maxStyleToggle" title="Let MAX also swap Primary/Secondary style for a higher-scoring combination — off by default, so MAX keeps your style">⭐ MAX STYLE</span>
     <span class="chip ${state.structure ? "on" : ""}" id="structToggle" title="Append [Intro][Build][Drop]… tags">Structure</span>
     <label class="inline">Influence <select id="influenceSel">
       ${["subtle", "balanced", "strong"].map(v => `<option ${state.influence === v ? "selected" : ""}>${v}</option>`).join("")}
@@ -283,6 +289,7 @@ function renderTopbar() {
   el.querySelector("#noStopToggle").addEventListener("click", toggleNoStop);
   el.querySelector("#hideBeatsToggle").addEventListener("click", toggleHideBeats);
   el.querySelector("#structToggle").addEventListener("click", () => { state.structure = !state.structure; commit("Structure " + (state.structure ? "on" : "off")); afterChange(); });
+  el.querySelector("#maxStyleToggle").addEventListener("click", () => { state.maxStyle = !state.maxStyle; commit("MAX style " + (state.maxStyle ? "on" : "off")); afterChange(); });
   el.querySelector("#influenceSel").addEventListener("change", e => { state.influence = e.target.value; commit("Influence " + state.influence); afterChange(); });
   el.querySelector("#durationSel").addEventListener("change", e => { state.duration = e.target.value; commit("Length " + state.duration); afterChange(); });
   el.querySelector("#forceSel").addEventListener("change", e => { state.melodicForce = e.target.value; commit("Melody " + state.melodicForce); afterChange(); });

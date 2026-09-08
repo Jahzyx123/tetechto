@@ -40,7 +40,8 @@ const MAP = {
   saturationType: "saturationType", compressionType: "compressionType", eqType: "eqType", sidechainCurve: "sidechainCurve", stereoEnhance: "stereoEnhance",
   cm: "counterMelody", cmr: "counterMelodyRelation", vc: "voiceConcept", vr: "voiceRelation",
   slim: "slim", lfg: "lastFitGenre",
-  slt: "soundLite", nst: "noStop", hbt: "hideBeats"
+  slt: "soundLite", nst: "noStop", hbt: "hideBeats",
+  mx: "maxStyle"
 };
 
 export function encodeState(s) {

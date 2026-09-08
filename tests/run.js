@@ -83,10 +83,27 @@ section("Techno-only isolation");
     if (s.primaryStyle === s.secondaryStyle) distinct = false;
   }
   ok(D.STYLES.length >= 838, "verbatim techno pool intact at ≥838 styles (" + D.STYLES.length + ")");
-  ok(E.STYLES.length >= 1400, "expanded techno pool has ≥1400 styles (" + E.STYLES.length + ")");
+  ok(E.STYLES.length >= 3000, "expanded techno pool is ≥3000 styles (" + E.STYLES.length + ")");
   ok(allFromPool, "techno-only rolls come exclusively from the techno pool");
   ok(bpmOk, "techno tempo stays in the weighted 128–156 band (last " + s.bpm + ")");
   ok(distinct, "primary and secondary style never coincide");
+  /* sub-techno styles (any c:"sub" entry) must be usable in BOTH slots —
+     the user asked for sub-style and techno style in primary or secondary */
+  let subOnPrimary = 0, subOnSecondary = 0, coreOnPrimary = 0, coreOnSecondary = 0;
+  for (let i = 0; i < 200; i++) {
+    const st = E.defaultState(); st.techOnly = true; E.roll(st, "everything");
+    const entry = n => E.STYLES.find(x => x.n === n);
+    const cat = n => entry(n) ? entry(n).c : "";
+    if (cat(st.primaryStyle) === "sub") subOnPrimary++;
+    if (cat(st.secondaryStyle) === "sub") subOnSecondary++;
+    if (cat(st.primaryStyle) === "core") coreOnPrimary++;
+    if (cat(st.secondaryStyle) === "core") coreOnSecondary++;
+  }
+  ok(subOnPrimary > 0 && subOnSecondary > 0,
+    `sub-techno styles land in primary (${subOnPrimary}) AND secondary (${subOnSecondary}) slots`);
+  ok(coreOnPrimary > 0 && coreOnSecondary > 0,
+    `core techno styles land in primary (${coreOnPrimary}) AND secondary (${coreOnSecondary}) slots`);
+  ok(E.STYLES.some(x => x.n === "Techno"), "plain 'Techno' is in the pool");
 }
 
 /* ---------------- genre combos (no-techno) ---------------- */
@@ -402,6 +419,63 @@ section("MAX keeps the style & re-rolls variations");
   let moved = false;
   for (let i = 0; i < 8 && !moved; i++) { E.roll(s2, "everything", { mode: "max", tries: 8, keepStyle: false }); if (s2.primaryStyle !== before) moved = true; }
   ok(true, "keepStyle:false path runs (style changed: " + moved + ")");
+}
+
+section("MAX STYLE toggle & command coverage");
+{
+  /* maxStyle:true lets MAX roll the style too — but it must never hand
+     back a lower-scoring set than the starting one. */
+  const s = E.defaultState(); s.techOnly = true; E.roll(s, "everything");
+  const start = E.scorePrompt(s).total;
+  for (let i = 0; i < 6; i++) {
+    E.roll(s, "everything", { mode: "max", tries: 24, maxStyle: true });
+  }
+  ok(E.scorePrompt(s).total >= start, `MAX STYLE never downgrades (${start} → ${E.scorePrompt(s).total})`);
+
+  /* share link round-trips the new toggle */
+  s.maxStyle = true;
+  const dec = E.decodeState(E.encodeState(s));
+  ok(dec.maxStyle === true, "share link round-trips maxStyle");
+
+  /* default (no maxStyle) still pins the style */
+  const s3 = E.defaultState(); s3.techOnly = true; E.roll(s3, "everything");
+  const p3 = s3.primaryStyle, q3 = s3.secondaryStyle;
+  E.roll(s3, "everything", { mode: "max", tries: 16 });
+  ok(s3.primaryStyle === p3 && s3.secondaryStyle === q3, "MAX default keeps style even with maxStyle option absent");
+
+  /* Command coverage criterion exists and rewards command-bearing states */
+  const sc = E.scorePrompt(s);
+  const cmd = sc.items.find(i => i.label === "Command coverage");
+  const cmdD = sc.items.find(i => i.label === "Command density");
+  ok(!!cmd, "Command coverage criterion present");
+  ok(!!cmdD, "Command density criterion present");
+  ok(cmd.score > 0, "rolled state has command coverage (score " + cmd.score + ")");
+
+  /* states WITHOUT commands score lower on both command criteria */
+  const bare = E.defaultState(); E.roll(bare, "everything");
+  bare.concept = { world: "", location: "", visual: "", narrative: "", sensation: "", event: "", conflict: "", crowd: "", title: "", transform: "" };
+  bare.melodyConcept = { story: "", role: "", motion: "", hook: "" };
+  bare.arrangement = "";
+  bare.layers = {};
+  const scBare = E.scorePrompt(bare);
+  const cmdBare = scBare.items.find(i => i.label === "Command coverage");
+  const cmdDBare = scBare.items.find(i => i.label === "Command density");
+  ok(cmdBare.score < cmd.score, `command-less state scores lower coverage (${cmdBare.score} < ${cmd.score})`);
+  ok(cmdDBare.score < cmdD.score, `command-less state scores lower density (${cmdDBare.score} < ${cmdD.score})`);
+
+  /* MAX can actually raise command density: force a wimpy command layer,
+     then let MAX improve it (style pinned). */
+  const s4 = E.defaultState(); s4.techOnly = true; E.roll(s4, "everything");
+  s4.concept = { world: "", location: "", visual: "", narrative: "", sensation: "", event: "", conflict: "", crowd: "", title: "T", transform: "" };
+  s4.melodyConcept = { story: "", role: "", motion: "", hook: "" };
+  s4.arrangement = "";
+  const dBefore = E.scorePrompt(s4).items.find(i => i.label === "Command density").score;
+  let dAfter = dBefore;
+  for (let i = 0; i < 4; i++) {
+    E.roll(s4, "everything", { mode: "max", tries: 16 });
+    dAfter = E.scorePrompt(s4).items.find(i => i.label === "Command density").score;
+  }
+  ok(dAfter >= dBefore, `MAX upgrades command density (${dBefore} → ${dAfter})`);
 }
 
 section("Sound pool expansion");
@@ -1038,7 +1112,7 @@ section("No-techno combo selection");
 section("Style pool expansion");
 {
   const { EXTRA_STYLES, EXTRA_GENRES, EXTRA_SUBS } = await import("../data/styles-extra.js");
-  ok(E.STYLES.length >= 1400, "techno styles expanded to ≥1400 (" + E.STYLES.length + " from " + D.STYLES.length + ")");
+  ok(E.STYLES.length >= 3000, "techno styles expanded to ≥3000 (" + E.STYLES.length + " from " + D.STYLES.length + ")");
   ok(E.GENRES.length >= 275, "genres expanded to ≥275 (" + E.GENRES.length + " from " + D.GENRES.length + ")");
   ok(E.STYLE_STATS.combos >= 4000, "genre x sub-style combos ≥4000 (" + E.STYLE_STATS.combos + ")");
 
@@ -1312,6 +1386,13 @@ await (async () => {
     ok(rerolled >= 1, "the MAX button rerolls the sounds until it converges (" + rerolled + "/8)");
     ok(kept === 8, "every MAX button click keeps the style (" + kept + "/8)");
     ok(NF.buildStylePrompt().length <= 1000, "prompt still capped after 8 MAX clicks");
+    /* MAX STYLE through the real chip */
+    const ms = doc.querySelector("#maxStyleToggle");
+    ok(!!ms, "MAX STYLE chip rendered");
+    ms.click();
+    ok(NF.get().maxStyle === true, "MAX STYLE chip toggles on");
+    ms.click();
+    ok(NF.get().maxStyle === false, "MAX STYLE chip toggles off");
     /* SOUND-LITE through the real chip */
     const sl = doc.querySelector("#soundLiteToggle");
     ok(!!sl, "sound-lite chip rendered");

@@ -879,6 +879,42 @@ export function scorePrompt(state) {
       (present < LABELS.length ? " — unhide cards to add more." : " — full spread.")
   });
 
+  /* Command coverage — the Full Brief's command layer (concept, melody
+     concept, arrangement, energy arc, detail layers). The Style Prompt box
+     only rewards sounds; MAX with this criterion also optimizes the
+     commands that shape the song, so a click upgrades the whole brief. */
+  const cmdChecks = [
+    ["Concept", !s.hidden.conceptCard, () => conceptLine(s, false) !== "Concept: UNTITLED"],
+    ["Melody concept", !s.hidden.feelCard, () => !!melodyConceptLine(s, false)],
+    ["Arrangement", !s.hidden.arrangementCard, () => !!s.arrangement],
+    ["Energy arc", true, () => !!arcLine(s)],
+    ["Detail layers", true, () => enabledLayers(s).length > 0]
+  ];
+  const cmdApplicable = cmdChecks.filter(c => c[1]).length;
+  const cmdPresent = cmdChecks.filter(c => c[1] && c[2]()).length;
+  const cmdCover = cmdApplicable ? Math.round(cmdPresent / cmdApplicable * 100) : 100;
+  items.push({
+    label: "Command coverage", score: cmdCover,
+    note: cmdPresent + " of " + cmdApplicable + " command layers present" +
+      (cmdPresent < cmdApplicable ? " — MAX rolls them in." : " — full brief command.")
+  });
+
+  /* Command density — how much command text actually reaches the Full
+     Brief. Same idea as sound density but for the writing: a longer
+     concept story, a closer melody-concept description, a fuller
+     arrangement and arc earn more. MAX picks the richest brief. */
+  const fbCmd = [
+    conceptLine(s, false), melodyConceptLine(s, false),
+    s.arrangement || "", arcLine(s) || "",
+    layerLine(s)
+  ].filter(Boolean).join(" ").length;
+  const cmdDensity = Math.max(20, Math.min(100, Math.round((fbCmd / 420) * 100)));
+  items.push({
+    label: "Command density", score: cmdDensity,
+    note: fbCmd + " command characters" +
+      (fbCmd >= 420 ? " — brief fully commanded." : fbCmd >= 300 ? " — good command layer." : " — MAX rolls fuller commands.")
+  });
+
   const melo = /Lead:|Melody-driven|Melody-dominant/.test(sp);
   const force = s.melodicForce || "balanced";
   const meloScore = !melo ? 0 : force === "light" ? 72 : force === "balanced" ? 92 : 100;

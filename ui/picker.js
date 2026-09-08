@@ -4,9 +4,10 @@
    types: style (mode-aware full style list), bpm, root, scale,
    scaleName and key (two-step root → scale). */
 import { PICKER_POOLS } from "../data/atoms.js";
-import { STYLES } from "../data/styles.js";
 import { NOTE_NAMES, SCALES } from "../data/scales.js";
-import { allCombos, genreOfStyle } from "../engine/genre.js";
+/* Use the EXPANDED style pool (base + generated extra styles), not the
+   verbatim data/styles.js, so every techno sub-style is pickable. */
+import { STYLES, allCombos, genreOfStyle } from "../engine/genre.js";
 import { scaleOf } from "../engine/music.js";
 
 const $ = sel => document.querySelector(sel);
