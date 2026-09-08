@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEON FORGE II // Suno 5.5 Prompt Forge</title>
+<meta name="description" content="Remade from scratch: every sound pool from the original kept verbatim — any-genre sub-style combos + Techno-Only mode, manual list picking, hide feature, and one random complete amazing description ≤1000 chars for Suno 5.5.">
+<meta name="theme-color" content="#04070c">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2304070c'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%2338f8ff' font-family='monospace' font-weight='bold'%3EN%3C/text%3E%3C/svg%3E">
+<style>
+/* ============================================================
+   NEON FORGE II — remade from scratch.
+   Offline-first, single file, no build system.
+   Dark forge aesthetic: ink black, electric cyan, forge lime.
+   ============================================================ */
+:root{
+  --bg:#04070c; --bg2:#060b12; --panel:rgba(10,16,24,.92); --panel2:rgba(14,23,33,.94);
+  --line:rgba(120,180,255,.14); --line-bright:rgba(56,248,255,.45);
+  --cyan:#38f8ff; --lime:#a8ff3e; --amber:#ffc24b; --magenta:#ff5da2; --violet:#b48cff;
+  --text:#eaf6ff; --text-dim:#9db4c8; --text-faint:#5f7688;
+  --mono:'SF Mono','Cascadia Code','JetBrains Mono','Fira Code',Consolas,Menlo,monospace;
+  --sans:Inter,'Avenir Next','Segoe UI',system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;color-scheme:dark}
+body{
+  background:
+    radial-gradient(900px 520px at 8% -8%,rgba(56,248,255,.10),transparent 65%),
+    radial-gradient(800px 540px at 92% 4%,rgba(168,255,62,.06),transparent 60%),
+    radial-gradient(700px 620px at 60% 105%,rgba(180,140,255,.05),transparent 65%),
+    var(--bg);
+  color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden;
+}
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.5;
+  background-image:linear-gradient(rgba(56,248,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(56,248,255,.03) 1px,transparent 1px);
+  background-size:44px 44px;
+  -webkit-mask-image:linear-gradient(to bottom,black,transparent 85%);mask-image:linear-gradient(to bottom,black,transparent 85%);
+}
+::selection{background:rgba(56,248,255,.3);color:#fff}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-track{background:#050a10}
+::-webkit-scrollbar-thumb{background:#16324a;border:3px solid #050a10;border-radius:10px}
+::-webkit-scrollbar-thumb:hover{background:#24567a}
+a{color:var(--cyan)}
+.wrap{position:relative;z-index:1;max-width:1560px;margin:0 auto;padding:22px 26px 80px}
+
+header{
+  position:relative;display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between;
+  padding:18px 22px 20px;margin-bottom:22px;border:1px solid var(--line);border-radius:20px;
+  background:linear-gradient(120deg,rgba(12,22,34,.92),rgba(4,9,15,.78));
+  box-shadow:0 22px 60px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.04);overflow:hidden;
+}
+header::before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(110deg,rgba(56,248,255,.08),transparent 34%,transparent 72%,rgba(168,255,62,.05))}
+.brand,.header-actions{position:relative;z-index:1}
+.brand .eyebrow{display:flex;align-items:center;gap:8px;margin-bottom:9px;color:var(--cyan);font:700 9px/1 var(--mono);letter-spacing:2.4px;text-transform:uppercase}
+.brand .eyebrow::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--cyan);box-shadow:0 0 0 4px rgba(56,248,255,.12),0 0 16px var(--cyan);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.brand h1{font-weight:900;letter-spacing:-2px;font-size:clamp(30px,3.8vw,50px);line-height:.95;
+  background:linear-gradient(110deg,#f4fbff 6%,var(--cyan) 52%,var(--lime));-webkit-background-clip:text;background-clip:text;color:transparent}
+.brand h1 span{display:block;font-size:.27em;letter-spacing:4px;margin-top:9px;color:var(--text-dim);background:none;-webkit-text-fill-color:var(--text-dim);font-weight:700}
+.brand .tag{margin-top:9px;color:var(--text-faint);font:10.5px/1.7 var(--mono);letter-spacing:.4px}
+.header-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;max-width:640px}
+.chip{font:11px var(--mono);color:var(--text-dim);background:rgba(4,11,18,.7);border:1px solid var(--line);padding:8px 11px;border-radius:9px}
+.chip b{color:var(--cyan)}
+
+button{font-family:var(--sans);cursor:pointer;border:1px solid var(--line-bright);
+  background:linear-gradient(180deg,rgba(22,38,54,.9),rgba(8,16,26,.94));
+  color:var(--cyan);padding:9px 13px;border-radius:10px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-size:11.5px;
+  transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease,background .16s ease;user-select:none}
+button:hover{transform:translateY(-1px);border-color:rgba(56,248,255,.7);background:linear-gradient(180deg,rgba(30,52,72,.95),rgba(10,22,34,.96));box-shadow:0 8px 26px rgba(56,248,255,.12)}
+button:active{transform:translateY(0) scale(.98)}
+button.power{border:none;padding:11px 17px;background:linear-gradient(120deg,var(--cyan),#7df4ff 55%,var(--lime));color:#02141a;font-weight:900;box-shadow:0 8px 28px rgba(56,248,255,.28),inset 0 1px 0 rgba(255,255,255,.5)}
+button.power:hover{background:linear-gradient(120deg,#8ffbff,#b4ffd0 55%,#d6ff8a);box-shadow:0 10px 36px rgba(56,248,255,.38)}
+button.ghost{background:transparent;border-color:var(--line);color:var(--text-dim)}
+button.ghost:hover{color:var(--cyan);border-color:var(--line-bright)}
+button:disabled{opacity:.35;cursor:not-allowed;box-shadow:none;transform:none}
+button.sm{padding:5px 9px;font-size:10px;border-radius:7px}
+button.mini{padding:3px 8px;font-size:10px;border-radius:6px;text-transform:none;letter-spacing:0}
+button.listbtn{color:var(--amber)}
+button.listbtn:hover{color:var(--amber);border-color:var(--amber);box-shadow:0 0 10px rgba(255,194,75,.3)}
+
+.grid{display:grid;grid-template-columns:minmax(0,1.06fr) minmax(430px,.94fr);gap:20px;align-items:start}
+@media(max-width:1080px){.grid{grid-template-columns:1fr}}
+.controls{display:flex;flex-direction:column;gap:15px}
+.output{display:flex;flex-direction:column;gap:15px}
+/* the generated description stays pinned top-right while you roll on the left */
+#outputCard{position:sticky;top:12px;z-index:40;max-height:calc(100vh - 24px);overflow:auto}
+@media(max-width:1080px){
+  .output{order:-1}
+  #outputCard{position:static;max-height:none;overflow:visible}
+}
+
+.card{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:18px;padding:17px 18px 19px;
+  background:linear-gradient(145deg,rgba(14,23,33,.95),rgba(7,13,21,.92));box-shadow:0 20px 55px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.035);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);transition:border-color .2s ease}
+.card::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:linear-gradient(90deg,transparent,var(--cyan) 18%,var(--lime) 52%,transparent 90%);opacity:.4;pointer-events:none}
+.card:hover{border-color:rgba(56,248,255,.24)}
+.card h2{font-size:10.5px;font-weight:900;letter-spacing:2.6px;color:var(--cyan);text-transform:uppercase;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.card h2 .dot{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px var(--cyan);animation:pulse 2s infinite}
+.card h2 .spacer{flex:1}
+.card.flash{animation:flash .5s ease}
+@keyframes flash{0%{box-shadow:0 0 0 rgba(56,248,255,0)}30%{box-shadow:0 0 34px rgba(56,248,255,.55)}100%{box-shadow:0 20px 55px rgba(0,0,0,.42)}}
+.card.hidden .cardbody{display:none}
+.card.hidden h2{margin-bottom:0}
+.card.hidden{padding-bottom:12px}
+.hidebtn{padding:3px 8px;font-size:11px;border-radius:6px;background:transparent;border-color:var(--line);color:var(--text-faint);text-transform:none;letter-spacing:0}
+.hidebtn:hover{color:var(--cyan);border-color:var(--line-bright)}
+.hidebtn.off{opacity:.55;border-style:dashed}
+
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0}
+.row .lbl{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--text-dim);min-width:88px;font-weight:800}
+.row .val{font-family:var(--mono);font-size:12.5px;color:var(--cyan);flex:1;min-width:150px;line-height:1.45;word-break:break-word}
+.row .val.dim{color:var(--text-faint)}
+.row .val.title{color:#fff;font-weight:800;letter-spacing:1px}
+.bigval{font-family:var(--mono);font-size:clamp(14px,1.9vw,17.5px);color:#eaf6ff;line-height:1.4;
+  background:rgba(3,10,17,.75);border:1px solid var(--line);border-radius:11px;padding:12px 13px;margin:8px 0;word-break:break-word;box-shadow:inset 0 1px 14px rgba(0,0,0,.3)}
+.bigval b{color:var(--cyan)}
+
+.lock{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:4px 8px;font-size:13px;line-height:1;color:var(--text-faint);transition:.15s}
+.lock:hover{color:var(--text-dim);border-color:var(--line-bright)}
+.lock.locked{color:#03141a;background:var(--cyan);border-color:var(--cyan);box-shadow:0 0 10px rgba(56,248,255,.5)}
+.miniroll{color:var(--text-dim)}
+.miniroll:hover{color:var(--cyan)}
+.cluster{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.cluster .push{background:linear-gradient(180deg,rgba(20,40,58,.9),rgba(9,18,30,.95));border-color:var(--line-bright);color:var(--lime)}
+.cluster .push:hover{box-shadow:0 0 14px rgba(168,255,62,.3)}
+
+input[type=range]{-webkit-appearance:none;appearance:none;height:6px;border-radius:3px;background:linear-gradient(90deg,rgba(56,248,255,.5),#10233a);border:none;outline:none;flex:1;min-width:120px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;border-radius:50%;background:var(--cyan);border:2px solid #03141a;box-shadow:0 0 0 5px rgba(56,248,255,.1),0 0 12px rgba(56,248,255,.6);cursor:pointer}
+input[type=range]::-moz-range-thumb{width:17px;height:17px;border-radius:50%;background:var(--cyan);border:2px solid #03141a;cursor:pointer}
+select,input[type=number],input[type=text]{background:rgba(3,10,17,.85);color:var(--cyan);border:1px solid var(--line-bright);border-radius:8px;padding:7px 9px;font-family:var(--mono);font-size:12.5px;outline:none;min-height:36px}
+select:focus,input[type=number]:focus,input[type=text]:focus{border-color:var(--cyan);box-shadow:0 0 9px rgba(56,248,255,.3)}
+input[type=number]{width:76px}
+.readout{font-family:var(--mono);font-size:11px;color:var(--text-dim)}
+.counter{font-family:var(--mono);font-size:11px;color:var(--text-faint);margin-left:auto}
+.counter.over{color:var(--magenta);font-weight:800}
+.counter.good{color:var(--lime)}
+
+.toggle{display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:20px;border:1px solid var(--line);background:var(--panel);color:var(--text-dim);
+  font-size:10.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;transition:.15s}
+.toggle:hover{border-color:var(--line-bright);color:var(--cyan)}
+.toggle.on{background:rgba(56,248,255,.13);border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 10px rgba(56,248,255,.22)}
+.toggle .led{width:8px;height:8px;border-radius:50%;background:var(--text-faint);transition:.15s}
+.toggle.on .led{background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+.toggles{display:flex;flex-wrap:wrap;gap:7px}
+
+/* --- mode segmented control --- */
+.modebar{display:flex;gap:6px;margin:10px 0 4px;flex-wrap:wrap}
+.mode-btn{flex:1;min-width:150px;padding:13px 12px;border-radius:12px;font-size:12px;letter-spacing:1.4px;font-weight:900;
+  border:1px solid var(--line);background:rgba(4,11,18,.6);color:var(--text-faint);text-align:center}
+.mode-btn .msub{display:block;font-size:9px;letter-spacing:.6px;font-weight:600;margin-top:5px;color:var(--text-faint);text-transform:none}
+.mode-btn:hover{border-color:var(--line-bright);color:var(--text-dim)}
+.mode-btn.on-tech{background:linear-gradient(120deg,rgba(255,93,162,.18),rgba(56,248,255,.1));border-color:var(--magenta);color:var(--magenta);box-shadow:0 0 16px rgba(255,93,162,.25)}
+.mode-btn.on-tech .msub{color:var(--text-dim)}
+.mode-btn.on-any{background:linear-gradient(120deg,rgba(168,255,62,.14),rgba(56,248,255,.08));border-color:var(--lime);color:var(--lime);box-shadow:0 0 16px rgba(168,255,62,.22)}
+.mode-btn.on-any .msub{color:var(--text-dim)}
+.modebar-note{font:10px var(--mono);color:var(--text-faint);margin:6px 2px 0}
+
+/* --- spark card --- */
+.sparkgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:6px;margin-top:10px}
+.sparkgrid button{font-size:10px;padding:7px 8px;text-transform:none;letter-spacing:0;text-align:left}
+
+/* --- concept grid --- */
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.citem{background:rgba(3,10,17,.7);border:1px solid var(--line);border-radius:10px;padding:10px;transition:.15s}
+.citem:hover{border-color:rgba(56,248,255,.3)}
+.citem .clbl{font-size:8.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-faint);margin-bottom:4px;font-weight:800}
+.citem .cval{font-family:var(--mono);font-size:11px;color:var(--text);line-height:1.45}
+.citem .cval.title{color:var(--cyan);font-weight:800;letter-spacing:1.2px;text-transform:uppercase;font-size:12px}
+
+/* --- energy arc --- */
+.arc{display:flex;gap:3px;align-items:flex-end;margin:10px 0 4px;min-height:92px}
+.arcseg{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
+.arcbar{width:100%;height:62px;background:rgba(3,10,17,.75);border:1px solid var(--line);border-radius:5px;display:flex;align-items:flex-end;overflow:hidden}
+.arcfill{width:100%;background:linear-gradient(180deg,var(--cyan),var(--lime) 45%,#1e7a3a);box-shadow:0 0 14px rgba(56,248,255,.25) inset;transition:height .35s cubic-bezier(.4,0,.2,1)}
+.arcname{font-size:8.5px;letter-spacing:.5px;text-transform:uppercase;color:var(--text-dim);font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.arcmeta{font-family:var(--mono);font-size:9px;color:var(--text-faint)}
+
+/* --- score --- */
+.scoretotal{font-family:var(--mono);font-size:24px;font-weight:900;line-height:1}
+.scoretotal.good{color:var(--lime);text-shadow:0 0 14px rgba(168,255,62,.5)}
+.scoretotal.mid{color:var(--amber);text-shadow:0 0 14px rgba(255,194,75,.4)}
+.scoretotal.bad{color:var(--magenta);text-shadow:0 0 14px rgba(255,93,162,.4)}
+.scorerow{display:grid;grid-template-columns:118px 1fr 32px;gap:8px;align-items:center;margin:7px 0}
+.scorerow .sname{font-size:9.5px;letter-spacing:.7px;text-transform:uppercase;color:var(--text-dim);font-weight:800}
+.scorerow .sbar{height:6px;background:rgba(3,10,17,.8);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.scorerow .sfill{display:block;height:100%;transition:width .35s ease}
+.sfill.good{background:linear-gradient(90deg,#1e7a3a,var(--lime))}
+.sfill.mid{background:linear-gradient(90deg,#7a5f10,var(--amber))}
+.sfill.bad{background:linear-gradient(90deg,#7a1b3a,var(--magenta))}
+.scorerow .snum{font-family:var(--mono);font-size:11px;text-align:right;font-weight:800}
+.snum.good{color:var(--lime)}.snum.mid{color:var(--amber)}.snum.bad{color:var(--magenta)}
+.scorerow .snote{grid-column:2/4;font-family:var(--mono);font-size:9.5px;color:var(--text-faint);margin-top:-3px}
+
+/* --- output --- */
+.tabs{display:flex;gap:4px;padding:4px;margin-bottom:12px;border:1px solid var(--line);border-radius:12px;background:rgba(3,10,17,.6);flex-wrap:wrap}
+.tab{flex:1;border:0;border-radius:8px;padding:9px 10px;background:transparent;font-size:10px;letter-spacing:.8px;white-space:nowrap}
+.tab.active{border:0;border-radius:8px;background:linear-gradient(120deg,rgba(56,248,255,.16),rgba(168,255,62,.07));box-shadow:inset 0 0 0 1px rgba(56,248,255,.3);color:#dffbff}
+.outbox{background:rgba(3,10,17,.8);border:1px solid var(--line);border-radius:13px;padding:18px;min-height:250px;
+  font-family:var(--mono);font-size:12px;line-height:1.7;color:#dff6ff;white-space:pre-wrap;word-break:break-word;box-shadow:inset 0 0 30px rgba(0,0,0,.25)}
+.outbox .sec{color:var(--cyan);font-weight:800}
+.outbox .dim{color:var(--text-faint)}
+.outmeta{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
+.copybtn{border:none;background:linear-gradient(120deg,var(--cyan),#7df4ff);color:#02141a;font-weight:900;box-shadow:0 7px 20px rgba(56,248,255,.2)}
+
+/* --- variations / history --- */
+.vari{display:grid;grid-template-columns:1fr;gap:10px}
+.vcard{border:1px solid var(--line);border-radius:11px;padding:12px;background:rgba(3,10,17,.65);transition:.15s}
+.vcard:hover{border-color:rgba(56,248,255,.3)}
+.vcard .vhead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.vcard .vtitle{font-family:var(--mono);color:var(--cyan);font-weight:800;font-size:12.5px;letter-spacing:.5px}
+.vcard .vsub{font-family:var(--mono);font-size:10.5px;color:var(--text-dim)}
+.vcard .vscore{font-family:var(--mono);font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;border:1px solid var(--line)}
+.vcard .vscore.good{color:var(--lime);border-color:rgba(168,255,62,.5)}
+.vcard .vscore.mid{color:var(--amber);border-color:rgba(255,194,75,.5)}
+.vcard .vscore.bad{color:var(--magenta);border-color:rgba(255,93,162,.5)}
+.vcard .vbody{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);line-height:1.5;max-height:110px;overflow:auto}
+.vcard .vactions{display:flex;gap:6px;margin-top:10px}
+.hist{display:flex;flex-direction:column;gap:8px;max-height:460px;overflow:auto}
+.hitem{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:rgba(3,10,17,.6);transition:.12s}
+.hitem:hover{border-color:rgba(56,248,255,.3)}
+.hitem .hhead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.hitem .hlabel{font-family:var(--mono);font-size:11.5px;color:var(--cyan);font-weight:800;line-height:1.3}
+.hitem .hkind{font-family:var(--mono);font-size:8.5px;letter-spacing:1px;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:rgba(56,248,255,.12);color:var(--cyan)}
+.hitem .htime{font-family:var(--mono);font-size:9.5px;color:var(--text-faint)}
+.hitem .hbody{font-family:var(--mono);font-size:10px;color:var(--text-dim);line-height:1.45;margin:6px 0;max-height:54px;overflow:hidden}
+.hitem .hactions{display:flex;gap:6px}
+
+/* --- modals --- */
+.modal{position:fixed;inset:0;background:rgba(1,4,8,.82);backdrop-filter:blur(12px);z-index:300;display:none;align-items:center;justify-content:center;padding:20px}
+.modal.open{display:flex}
+.modalbox{background:linear-gradient(145deg,rgba(14,23,33,.98),rgba(7,13,21,.97));border:1px solid var(--line-bright);border-radius:20px;
+  width:min(700px,100%);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 35px 100px rgba(0,0,0,.65),0 0 45px rgba(56,248,255,.1)}
+.modalhead{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.modalhead h3{font-size:12.5px;letter-spacing:2px;color:var(--cyan);text-transform:uppercase;flex:1}
+.modalbody{padding:16px 18px;overflow:auto}
+#styleSearch,#masterSearch,#cmdSearch{width:100%;margin-bottom:12px;padding:10px 12px;font-size:13px}
+.stylegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:7px}
+.styleopt{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:8px 10px;border:1px solid var(--line);border-radius:8px;
+  background:rgba(3,10,17,.7);font-family:var(--mono);font-size:11px;color:var(--text);cursor:pointer;transition:.12s}
+.styleopt:hover{border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 10px rgba(56,248,255,.18)}
+.styleopt .cat{font-size:7.5px;letter-spacing:.8px;text-transform:uppercase;padding:2px 5px;border-radius:4px;flex-shrink:0;font-family:var(--mono)}
+.cat.core{background:rgba(56,248,255,.14);color:var(--cyan)}
+.cat.sub{background:rgba(255,194,75,.14);color:var(--amber)}
+.cat.rare{background:rgba(255,93,162,.14);color:var(--magenta)}
+.cat.genre{background:rgba(180,140,255,.14);color:var(--violet)}
+.cat.tech{background:rgba(255,93,162,.16);color:var(--magenta)}
+.cat.score{background:rgba(168,255,62,.16);color:var(--lime);font-weight:900}
+.cat.rank{background:rgba(255,194,75,.15);color:var(--amber);font-weight:800}
+.cat.energy{background:rgba(255,140,60,.15);color:#ffb37a}
+.cat.harmony{background:rgba(85,231,255,.15);color:#8be7ff}
+.cat.melody{background:rgba(180,140,255,.16);color:#c9b3ff}
+.cat.cov{background:rgba(168,255,62,.15);color:#c8ff8a}
+.cat.style{background:rgba(140,190,255,.15);color:#bcdcff}
+.cmdlist{display:flex;flex-direction:column;gap:4px;max-height:52vh;overflow:auto}
+.cmditem{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:8px;border:1px solid transparent;background:rgba(3,10,17,.6);cursor:pointer;transition:.1s}
+.cmditem:hover{border-color:var(--line-bright)}
+.cmditem.sel{border-color:var(--cyan);background:rgba(56,248,255,.1);box-shadow:0 0 12px rgba(56,248,255,.18)}
+.cmditem .cicon{width:20px;text-align:center;flex-shrink:0}
+.cmditem .cname{font-family:var(--mono);font-size:11.5px;color:var(--text);flex:1}
+.cmditem.sel .cname{color:var(--cyan)}
+.cmditem .ckey{font-family:var(--mono);font-size:9.5px;color:var(--text-faint);flex-shrink:0}
+.keytable{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;align-items:center;font-family:var(--mono);font-size:11.5px}
+.keytable .kd{color:var(--text-dim)}
+kbd{background:rgba(3,10,17,.9);border:1px solid var(--line-bright);border-radius:4px;padding:1px 6px;font-family:var(--mono);font-size:9.5px;color:var(--cyan)}
+
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);
+  background:rgba(5,17,28,.96);border:1px solid var(--cyan);color:var(--cyan);padding:11px 18px;border-radius:12px;
+  font-family:var(--mono);font-size:12px;z-index:400;box-shadow:0 12px 45px rgba(0,0,0,.5),0 0 20px rgba(56,248,255,.2);
+  opacity:0;pointer-events:none;transition:.25s ease;max-width:90vw;text-align:center}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.footerbar{margin-top:22px;padding-top:12px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;
+  color:var(--text-faint);font-family:var(--mono);font-size:10.5px;position:relative;z-index:2}
+.footerbar b{color:var(--cyan)}
+
+.foot{margin-top:28px;text-align:center;color:var(--text-faint);font-family:var(--mono);font-size:10.5px;line-height:1.8;position:relative}
+.foot .sig{position:absolute;right:2px;bottom:2px;font-size:9.5px;letter-spacing:1px;color:var(--cyan);opacity:.5}
+.rhythmGrid{display:grid;grid-template-columns:repeat(16,1fr);gap:4px;margin:8px 0}
+.rhythmGrid .rhythmCell:nth-child(4n){border-color:var(--line-bright)}
+.rhythmCell{height:30px;background:rgba(3,10,17,.8);border:1px solid var(--line);border-radius:6px;cursor:pointer;transition:.12s;
+  display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:9px;color:var(--text-faint)}
+.rhythmCell:hover{border-color:var(--line-bright);color:var(--cyan)}
+.rhythmCell.on{background:linear-gradient(180deg,var(--cyan),#1e7a9a);border-color:var(--cyan);color:#02141a;box-shadow:0 0 10px rgba(56,248,255,.35);font-weight:900}
+.technoDna{display:flex;gap:4px;align-items:flex-end;margin:8px 0;min-height:64px}
+.technoDna .seg{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px}
+.technoDna .bar{width:100%;height:44px;background:rgba(3,10,17,.75);border:1px solid var(--line);border-radius:4px;display:flex;align-items:flex-end;overflow:hidden}
+.technoDna .fill{width:100%;background:linear-gradient(180deg,var(--amber),var(--magenta));transition:height .3s}
+.technoDna .nm{font-size:8px;letter-spacing:.5px;text-transform:uppercase;color:var(--text-dim);font-weight:800}
+.technoDna .pc{font-family:var(--mono);font-size:8.5px;color:var(--text-faint)}
+
+@media(max-width:600px){.wrap{padding:10px 10px 60px}header{padding:16px 14px;border-radius:16px}.brand h1{letter-spacing:-1px}
+  .brand .tag{display:none}.header-actions{gap:6px}.header-actions button{padding:8px 10px;font-size:9.5px}.chip{order:10}
+  .card{padding:14px 12px 16px;border-radius:15px}.row .lbl{min-width:70px}.outbox{min-height:200px;padding:14px}.foot .sig{position:static;margin-top:10px;text-align:center}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <div class="eyebrow">Remade from scratch — every pool kept</div>
+      <h1>NEON FORGE II<span>// SUNO 5.5 PROMPT FORGE</span></h1>
+      <div class="tag">🎲 STYLE + SUB-STYLE COMBOS · ⛓ TECHNО-ONLY / 🌍 NO-TECHNО MODE · 📜 MANUAL LISTS · 👁 HIDE · ≤1000-CHAR DESCRIPTION</div>
+    </div>
+    <div class="header-actions">
+      <span class="chip">SEED <b id="seedView">–</b></span>
+      <button id="undoBtn" class="ghost" title="Ctrl/Cmd+Z">↶ Undo</button>
+      <button id="redoBtn" class="ghost" title="Ctrl/Cmd+Shift+Z">↷ Redo</button>
+      <button id="shareBtn" class="ghost">🔗 Share</button>
+      <button id="masterLibBtn" class="ghost" title="Browse every list — manual selection for all rolls">📚 Master List</button>
+      <button id="cmdBtn" class="ghost" title="Command palette (Ctrl/Cmd+K)">⌘ Commands</button>
+      <button id="helpBtn" class="ghost" title="Keyboard shortcuts (?)">⌨</button>
+      <button id="styleFocusBtn" class="ghost" title="Hide every card whose settings do not appear in the Description">📄 Prompt view</button>
+      <button id="powerRollBtn" class="power">⚡ Power roll</button>
+    </div>
+  </header>
+
+  <main class="grid">
+
+    <!-- ======================= CONTROLS ======================= -->
+    <section class="controls">
+
+      <!-- IDEA ENGINE -->
+      <div class="card" id="sparkCard">
+        <h2><span class="dot"></span>Idea Engine<span class="spacer"></span><span class="readout" id="sparkCount"></span><button class="hidebtn" data-hide="sparkCard" title="Show/hide whole card">👁</button></h2>
+        <div class="cardbody">
+          <div class="row" style="margin-bottom:10px"><span class="val dim" style="font-size:12px;font-family:var(--sans)">One roll = one spark of inspiration. Pick a category, use the spark in your prompt, or save it to the Idea Book.</span></div>
+          <div class="cluster" style="margin-top:0">
+            <button class="power" id="ideaBtn" style="flex:1">💡 NEW IDEA</button>
+          </div>
+          <div class="toggles" id="ideaCats" style="margin:10px 0"></div>
+          <div class="bigval" id="v-spark">— press 💡 NEW IDEA —</div>
+          <div class="readout" id="sparkMeta" style="margin-top:8px"></div>
+          <div class="cluster">
+            <button class="sm" id="sparkTitleApplyBtn" disabled>🏷 Use as title</button>
+            <button class="sm" id="sparkCopyBtn">📋 Copy idea</button>
+            <button class="sm ghost" id="sparkMoreBtn">🎲 Another one</button>
+          </div>
+          <div class="cluster">
+            <button class="sm power" id="anthemIdeaBtn" title="Rolls a full melody-dominant anthem: title + vibe + transformation, all melody maximized">💥 Anthem Idea</button>
+            <button class="sm power" id="luckyDipBtn" title="Completely rerolls the whole song and gives you 3 variations to compare">🎰 Lucky Dip</button>
+            <button class="sm" id="timeMachineBtn" title="Fresh tempo, key, duration and energy shape">🕰 Time Machine</button>
+          </div>
+          <div class="cluster">
+            <button class="sm ghost" id="saveIdeaBtn">📌 Save idea</button>
+            <button class="sm ghost" id="loadIdeaBtn">📖 Load idea</button>
+            <button class="sm ghost" id="clearIdeasBtn">🧹 Clear ideas</button>
+            <button class="sm ghost" id="copyPackBtn">📦 Copy Full Pack</button>
+            <button class="sm ghost" id="optimizePromptBtn">⚙️ Optimize space</button>
+            <button class="sm ghost" id="slimModeBtn">🧵 Slim</button>
+          </div>
+          <div class="readout" id="ideaBookMeta">Idea Book: 0 saved.</div>
+        </div>
+      </div>
+
+      <!-- STYLE & TEMPO -->
+      <div class="card" id="styleCard">
+        <h2><span class="dot"></span>Style &amp; Tempo<span class="spacer"></span><button class="hidebtn" data-hide="bpm" title="Show/hide BPM row">👁</button><button class="hidebtn" data-hide="key" title="Show/hide Key row">👁</button><button class="hidebtn" data-hide="styleCard" title="Show/hide whole card">👁</button></h2>
+        <div class="cardbody">
+          <div class="modebar">
+            <button class="mode-btn" id="modeTechBtn">⛓ TECHNО ONLY<span class="msub">curated techno pool · core / sub / rare sub-styles</span></button>
+            <button class="mode-btn" id="modeAnyBtn">🌍 NO TECHNО<span class="msub">every other genre · sub-style + genre combos</span></button>
+          </div>
+          <div class="modebar-note" id="modeNoteBar">Genre mode — the roller draws sub-style + genre combos from 40+ genres. No techno appears unless you switch.</div>
+          <div class="row" style="margin-top:10px"><span class="lbl">🎚 Style-fit</span>
+            <span class="toggle on" id="styleFitToggle" title="When a no-techno style is rolled: hide sound cards that don't fit the genre and re-tune the sounds that do."><span class="led"></span>auto-tune sounds to genre</span>
+            <button class="sm" id="allSoundsBtn" title="Un-hide every sound card — A key">👁 All sounds on</button>
+            <span class="readout" id="styleFitRead" style="font-size:10px">on genre roll: hides sounds that don't fit · re-tunes the rest</span>
+          </div>
+          <div class="row" style="margin-top:10px"><span class="lbl">⚡ DNA</span>
+            <div class="toggles" id="dnaPresets" style="flex:1"></div>
+            <span class="readout" id="dnaRead" style="font-size:10px">one-click techno flavors</span>
+          </div>
+          <div class="row"><span class="lbl">Primary</span>
+            <span class="val" id="v-primary">—</span>
+            <button class="lock" data-lock="primary">🔓</button>
+            <button class="mini miniroll" data-roll="primary">🎲</button>
+            <button class="mini listbtn" data-pick="primary">📜 List</button>
+          </div>
+          <div class="row"><span class="lbl">Secondary</span>
+            <span class="val" id="v-secondary">—</span>
+            <button class="lock" data-lock="secondary">🔓</button>
+            <button class="mini miniroll" data-roll="secondary">🎲</button>
+            <button class="mini listbtn" data-pick="secondary">📜 List</button>
+            <button class="mini miniroll" data-roll="clear-secondary" title="Clear influence">✕</button>
+            <button class="mini miniroll" data-roll="fuse" title="Fuse styles into one">🔀</button>
+          </div>
+          <div class="row" id="genreRow"><span class="lbl">Genre Combo</span>
+            <span class="val dim" id="genreHint">roll any genre + sub-style</span>
+            <button class="mini miniroll" data-roll="genre" title="Roll a random style + sub-style combo into both slots">🎲 New Style</button>
+            <label class="toggle" id="equalChanceWrap" title="Equal chance — every genre and every sub-style has exactly the same odds. Off = genre-first.">
+              <input type="checkbox" id="equalChanceChk" style="accent-color:var(--cyan);width:14px;height:14px">⚖ Equal chance
+            </label>
+          </div>
+          <div class="row"><span class="lbl">Influence</span>
+            <select id="influenceSel">
+              <option value="subtle">Subtle flavor</option>
+              <option value="balanced" selected>Balanced influence</option>
+              <option value="strong">Strong fusion</option>
+            </select>
+            <span class="readout" id="influenceRead"></span>
+          </div>
+          <div class="row"><span class="lbl">Weirdness</span>
+            <input type="range" id="weirdness" min="0" max="100" value="50">
+            <span class="readout" id="weirdnessRead">50</span>
+          </div>
+          <div class="row" id="bpmRow"><span class="lbl">BPM</span>
+            <input type="number" id="bpmInput" min="100" max="200" step="1">
+            <button class="lock" data-lock="bpm">🔓</button>
+            <button class="mini miniroll" data-roll="bpm">🎲</button>
+            <button class="mini listbtn" data-pick="bpm">📜 List</button>
+            <button class="mini listbtn" data-pick="key">📜 Key List</button>
+          </div>
+          <div class="row" id="keyRow"><span class="lbl">Key</span>
+            <select id="rootSel" title="Root note"></select>
+            <select id="scaleSel" title="Scale"></select>
+            <span class="readout" id="keyRead"></span>
+            <button class="lock" data-lock="key">🔓</button>
+            <button class="mini miniroll" data-roll="key">🎲</button>
+            <button class="mini listbtn" data-pick="scaleId">📜 Scales</button>
+            <button class="mini listbtn" data-pick="rootPc">📜 Roots</button>
+          </div>
+          <div class="cluster">
+          </div>
+        </div>
+      </div>
+
+      <!-- FEELING & MELODY -->
+      <div class="card" id="feelCard">
+        <h2><span class="dot"></span>Feeling &amp; Melody<span class="spacer"></span><button class="hidebtn" data-hide="feelCard">👁</button></h2>
+        <div class="cardbody">
+          <div class="bigval" id="emotionLine">—</div>
+          <div class="row"><span class="lbl">Melodic force</span>
+            <select id="melodicForceSel">
+              <option value="light">Light</option>
+              <option value="balanced" selected>Balanced</option>
+              <option value="strong">Strong</option>
+              <option value="dominant">Dominant</option>
+            </select>
+            <span class="readout" id="melodicForceRead"></span>
+          </div>
+          <div id="feelRows"></div>
+          <div class="concept-grid" id="melodyConceptGrid" style="margin:10px 0">
+            <div class="citem"><div class="clbl">Melody story</div><div class="cval" id="v-mcstory">—</div><div class="row" style="margin:6px 0 0;gap:4px"><button class="mini miniroll" data-roll="melodyConcept-story">🎲</button><button class="mini listbtn" data-pick="melodyConcept-story">📜</button></div></div>
+            <div class="citem"><div class="clbl">Role in track</div><div class="cval" id="v-mcrole">—</div><div class="row" style="margin:6px 0 0;gap:4px"><button class="mini miniroll" data-roll="melodyConcept-role">🎲</button><button class="mini listbtn" data-pick="melodyConcept-role">📜</button></div></div>
+            <div class="citem"><div class="clbl">Motion</div><div class="cval" id="v-mcmotion">—</div><div class="row" style="margin:6px 0 0;gap:4px"><button class="mini miniroll" data-roll="melodyConcept-motion">🎲</button><button class="mini listbtn" data-pick="melodyConcept-motion">📜</button></div></div>
+            <div class="citem"><div class="clbl">Hook shape</div><div class="cval" id="v-mchook">—</div><div class="row" style="margin:6px 0 0;gap:4px"><button class="mini miniroll" data-roll="melodyConcept-hook">🎲</button><button class="mini listbtn" data-pick="melodyConcept-hook">📜</button></div></div>
+          </div>
+          <div class="row" id="counterRow"><span class="lbl">Counter-melody</span>
+            <span class="val dim" id="v-counter">— roll to add a second line</span>
+            <button class="mini miniroll" data-roll="counter-melody" title="Roll a counter-melody">🎼+</button>
+            <button class="mini listbtn" data-pick="counter-melody">📜 List</button>
+            <button class="mini miniroll" data-roll="clear-counter" title="Clear counter-melody">✕</button>
+          </div>
+          <div class="row"><span class="lbl">Counter role</span>
+            <select id="counterRelSel">
+              <option value="supports" selected>Supports the main melody</option>
+              <option value="follows">Follows the main melody</option>
+              <option value="counters">Counters the main melody</option>
+            </select>
+            <button class="mini miniroll" data-roll="counter-relation">🎲</button>
+            <button class="mini listbtn" data-pick="counter-relation">📜 List</button>
+          </div>
+          <div class="row"><span class="lbl">Microtonal</span>
+            <span class="toggle" id="microMelodyBtn"><span class="led"></span>🎚 Microtonality</span>
+            <select id="microMelodySel"></select>
+            <span class="readout" id="microMelodyRead"></span>
+          </div>
+          <div class="cluster">
+            <button class="push" data-roll="feel-melody">🎭 Roll feeling → melody</button>
+            <button class="push" data-roll="melody">🎼 Roll melody</button>
+            <button class="push" data-roll="concept-melody">🌌 Roll melody concept</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- BASS -->
+      <div class="card" id="bassCard">
+        <h2><span class="dot"></span>Bass<span class="spacer"></span><button class="hidebtn" data-hide="bassCard">👁</button></h2>
+        <div class="cardbody">
+          <div id="bassRows"></div>
+          <div class="row"><span class="lbl">Voice concept</span>
+            <span class="val dim" id="v-voiceconcept">— roll to add a second voice</span>
+            <button class="mini miniroll" data-roll="voice-concept">🎤+</button>
+            <button class="mini listbtn" data-pick="voice-concept">📜 List</button>
+            <button class="mini miniroll" data-roll="clear-voice-concept">✕</button>
+          </div>
+          <div class="row"><span class="lbl">Voice role</span>
+            <select id="voiceRelSel">
+              <option value="supports" selected>Supports the main bass</option>
+              <option value="follows">Follows the main bass</option>
+              <option value="counters">Counters the main bass</option>
+            </select>
+            <button class="mini miniroll" data-roll="voice-relation">🎲</button>
+            <button class="mini listbtn" data-pick="voice-relation">📜 List</button>
+          </div>
+          <div class="row"><span class="lbl">Microtonal</span>
+            <span class="toggle" id="microBassBtn"><span class="led"></span>🎚 Microtonality</span>
+            <select id="microBassSel"></select>
+            <span class="readout" id="microBassRead"></span>
+          </div>
+          <div class="cluster"><button class="push" data-roll="bass">🔊 Roll bass</button></div>
+        </div>
+      </div>
+
+      <!-- DRUMS -->
+      <div class="card" id="drumsCard">
+        <h2><span class="dot"></span>Drums &amp; Groove<span class="spacer"></span><button class="hidebtn" data-hide="drumsCard">👁</button></h2>
+        <div class="cardbody">
+          <div id="drumsRows"></div>
+          <div class="cluster"><button class="push" data-roll="drums">🥁 Roll drums</button></div>
+        </div>
+      </div>
+
+      <!-- TECHNO LAB -->
+      <div class="card" id="technoLabCard">
+        <h2><span class="dot"></span>Techno Lab — Drive · Acid · Texture<span class="spacer"></span><button class="hidebtn" data-hide="technoLabCard">👁</button></h2>
+        <div class="cardbody">
+          <div class="readout" style="font-family:var(--sans);margin-bottom:6px">Extra techno-only sound-design layers — roll or pick manually. These feed the Description and the audition engine.</div>
+          <div id="technoLabRows"></div>
+          <div class="row"><span class="lbl">Acid amount</span><input type="range" id="acidAmt" min="0" max="100" value="60"><span class="readout" id="acidAmtRead">60%</span></div>
+          <div class="row"><span class="lbl">Drive amount</span><input type="range" id="driveAmt" min="0" max="100" value="75"><span class="readout" id="driveAmtRead">75%</span></div>
+          <div class="cluster">
+            <button class="push" data-roll="technoLab">⚙️ Roll Techno Lab</button>
+            <button class="sm ghost" data-pick="technoDrive">📜 Drive list</button>
+            <button class="sm ghost" data-pick="technoAcid">📜 Acid list</button>
+            <button class="sm ghost" data-pick="technoTexture">📜 Texture list</button>
+            <button class="sm ghost" data-pick="technoRave">📜 Rave list</button>
+          </div>
+          <div class="technoDna" id="technoDnaBox"></div>
+          <div class="readout" id="technoDnaRead">Techno DNA — drive / acid / texture / rave / industrial</div>
+        </div>
+      </div>
+
+      <!-- HARMONY LAB -->
+      <div class="card" id="harmonyLabCard">
+        <h2><span class="dot"></span>Harmony Lab — Chords<span class="spacer"></span><button class="hidebtn" data-hide="harmonyLabCard">👁</button></h2>
+        <div class="cardbody">
+          <div id="harmonyLabRows"></div>
+          <div class="bigval" id="chordProgDisplay">—</div>
+          <div class="cluster">
+            <button class="push" data-roll="harmony">🎼 Roll Harmony</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- RHYTHM LAB -->
+      <div class="card" id="rhythmLabCard">
+        <h2><span class="dot"></span>Rhythm Lab — 16-Step Designer<span class="spacer"></span><button class="hidebtn" data-hide="rhythmLabCard">👁</button></h2>
+        <div class="cardbody">
+          <div id="rhythmLabRows"></div>
+          <div class="rhythmGrid" id="rhythmGrid"></div>
+          <div class="cluster">
+            <button class="push" data-roll="rhythm">🥁 Roll Rhythm</button>
+            <button class="sm" id="rhythmRandomBtn">🎲 Randomize Grid</button>
+            <button class="sm ghost" id="rhythmClearBtn">✕ Clear</button>
+          </div>
+          <div class="readout" id="rhythmStatus" style="margin-top:8px">16-step grid — click to toggle</div>
+        </div>
+      </div>
+
+      <!-- SOUND DESIGN -->
+      <div class="card" id="soundDesignCard">
+        <h2><span class="dot"></span>Sound Design — Filter · Env · LFO · FX<span class="spacer"></span><button class="hidebtn" data-hide="soundDesignCard">👁</button></h2>
+        <div class="cardbody">
+          <div id="soundDesignRows"></div>
+          <div class="cluster">
+            <button class="push" data-roll="soundDesign">⚗️ Roll Sound Design</button>
+            <button class="sm ghost" data-pick="filterType">📜 Filter</button>
+            <button class="sm ghost" data-pick="envelopeType">📜 Env</button>
+            <button class="sm ghost" data-pick="lfoType">📜 LFO</button>
+            <button class="sm ghost" data-pick="distortionType">📜 Dist</button>
+            <button class="sm ghost" data-pick="reverbType">📜 Verb</button>
+            <button class="sm ghost" data-pick="delayType">📜 Delay</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MIX & MASTER -->
+      <div class="card" id="mixMasterCard">
+        <h2><span class="dot"></span>Mix &amp; Master — Density · Energy · Drive<span class="spacer"></span><button class="hidebtn" data-hide="mixMasterCard">👁</button></h2>
+        <div class="cardbody">
+          <div id="mixMasterRows"></div>
+          <div class="cluster">
+            <button class="push" data-roll="mixMaster">⚙️ Roll Mix & Master</button>
+            <button class="sm" data-roll="mix">🎛 Roll Mix</button>
+            <button class="sm" data-roll="master">🔊 Roll Master</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SPATIAL & MOD -->
+      <div class="card" id="spatialModCard">
+        <h2><span class="dot"></span>Spatial &amp; Mod — Stereo · Depth · Mod · Texture<span class="spacer"></span><button class="hidebtn" data-hide="spatialModCard">👁</button></h2>
+        <div class="cardbody">
+          <div id="spatialModRows"></div>
+          <div class="cluster">
+            <button class="push" data-roll="spatialMod">🌌 Roll Spatial & Mod</button>
+            <button class="sm" data-roll="spatial">🎧 Roll Spatial</button>
+            <button class="sm" data-roll="mod">🌀 Roll Mod</button>
+            <button class="sm" data-roll="texture">✨ Roll Texture</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- GROOVE & MELODIC -->
+      <div class="card" id="grooveMelodicCard">
+        <h2><span class="dot"></span>Groove &amp; Melodic — Ghost · Ornament · Voicing<span class="spacer"></span><button class="hidebtn" data-hide="grooveMelodicCard">👁</button></h2>
+        <div class="cardbody">
+          <div id="grooveMelodicRows"></div>
+          <div class="cluster">
+            <button class="push" data-roll="grooveMelodic">🎼 Roll Groove & Melodic</button>
+            <button class="sm" data-roll="grooveExtra">🥁 Roll Groove Extra</button>
+            <button class="sm" data-roll="melodicExtra">🎹 Roll Melodic Extra</button>
+            <button class="sm" data-roll="harmonicExtra">🎶 Roll Harmonic Extra</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TEXTURE & FX -->
+      <div class="card" id="textureFxCard">
+        <h2><span class="dot"></span>Texture &amp; FX — Ride · FX · Build · Drop<span class="spacer"></span><button class="hidebtn" data-hide="textureFxCard">👁</button></h2>
+        <div class="cardbody">
+          <div id="textureFxRows"></div>
+          <div class="cluster">
+            <button class="push" data-roll="textureFx">💥 Roll Texture & FX</button>
+            <button class="sm" data-roll="percExtra">🥁 Roll Perc Extra</button>
+            <button class="sm" data-roll="fxExtra">⚗️ Roll FX Extra</button>
+            <button class="sm" data-roll="arrangementExtra">🎛 Roll Arr Extra</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODE & SAFETY -->
+      <div class="card" id="modeCard">
+        <h2><span class="dot"></span>Mode &amp; Safety<span class="spacer"></span><button class="hidebtn" data-hide="modeCard">👁</button></h2>
+        <div class="cardbody">
+          <div class="row">
+            <span class="toggle on" id="instrumentalToggle"><span class="led"></span>Instrumental only</span>
+            <button class="lock" data-lock="instrumental">🔓</button>
+          </div>
+          <div class="row">
+            <span class="toggle" id="vocalToggle"><span class="led"></span>🎤 Vocal mode</span>
+          </div>
+          <div class="row"><span class="val dim" id="modeNote" style="font-family:var(--sans)">Instrumental safety is ON — all vocal content is stripped automatically.</span></div>
+          <div class="row"><span class="lbl">Duration</span>
+            <select id="durationSel">
+              <option value="compact">Compact</option>
+              <option value="standard" selected>Standard</option>
+              <option value="extended">Extended</option>
+            </select>
+            <span class="readout">track shape · energy arc</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- LAYERS -->
+      <div class="card" id="layersCard">
+        <h2><span class="dot"></span>Optional Detail Layers<span class="spacer"></span><button class="hidebtn" data-hide="layersCard">👁</button></h2>
+        <div class="cardbody">
+          <div class="toggles" id="layerToggles"></div>
+          <div class="cluster" style="margin-top:10px">
+            <button class="sm" id="layersRollBtn">🎲 Roll layers</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PRESETS -->
+      <div class="card" id="presetsCard">
+        <h2><span class="dot"></span>Presets (localStorage)<span class="spacer"></span><button class="hidebtn" data-hide="presetsCard">👁</button></h2>
+        <div class="cardbody">
+          <div class="row">
+            <input type="text" id="presetName" placeholder="Preset name…" style="flex:1;min-width:140px">
+            <button class="push" id="savePresetBtn">💾 Save</button>
+          </div>
+          <div class="toggles" id="presetList" style="margin-top:10px"></div>
+          <div class="cluster">
+            <button class="sm ghost" id="exportBtn">💾 Export session</button>
+            <button class="sm ghost" id="importBtn">📥 Import session</button>
+            <input type="file" id="importFile" accept=".txt" style="display:none">
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ======================= OUTPUT ======================= -->
+    <section class="output">
+
+      <!-- GENERATED OUTPUT (sticky top-right) -->
+      <div class="card" id="outputCard">
+        <h2><span class="dot"></span>Generated Output — Suno 5.5<span class="spacer"></span><span class="readout" id="seedView" title="This roll's seed — click to copy">seed</span></h2>
+        <div class="cardbody">
+          <div class="tabs">
+            <button class="tab active" data-tab="style">Suno 5.5 Description ≤1000</button>
+            <button class="tab" data-tab="brief">Full Brief</button>
+            <button class="tab" data-tab="kit">Suno Kit</button>
+            <button class="tab" data-tab="eng">Engineer</button>
+          </div>
+          <div class="outbox" id="outbox"></div>
+          <div class="outmeta">
+            <button class="copybtn" id="copyBtn">📋 Copy</button>
+            <button class="sm power" id="sunoOpenBtn" title="Copy the description and open Suno in a new tab">🎤 Copy &amp; open Suno</button>
+            <button class="ghost sm" id="copyKitBtn">📦 Copy Suno kit</button>
+            <button class="ghost sm" id="dlBtn" title="Download the current tab as .txt">⬇ .txt</button>
+            <label class="toggle" id="structToggle" title="Append [Intro] [Build] [Drop] section tags to the description — Suno 5.5 follows them"><span class="led"></span>[Intro] tags</label>
+            <span class="counter" id="counter"></span>
+          </div>
+          <div class="row" style="margin-top:8px"><button class="readout ghost sm" id="hiddenChip" title="Click to reveal everything">👁 all sections visible</button></div>
+        </div>
+      </div>
+
+      <!-- AUDITION -->
+      <div class="card" id="auditionCard">
+        <h2><span class="dot"></span>Audition<span class="spacer"></span><span class="readout" id="audHud">Idle — press play to hear this recipe.</span><button class="hidebtn" data-hide="auditionCard">👁</button></h2>
+        <div class="cardbody">
+          <div class="row">
+            <span class="toggle" id="auditionBtn"><span class="led"></span>▶ Audition loop</span>
+            <span class="lbl" style="min-width:0">Vol</span>
+            <input type="range" id="audVol" min="0" max="100" value="80" style="max-width:150px">
+          </div>
+          <div class="row"><span class="val dim" style="font-family:var(--sans)">Live Web Audio sketch of the rolled recipe — real key, BPM, swing, motif contour and timbre. Deterministic per seed.</span></div>
+        </div>
+      </div>
+
+      <!-- PROMPT SCORE -->
+      <div class="card" id="scoreCard">
+        <h2><span class="dot"></span>Prompt Score<span class="spacer"></span><span class="scoretotal good" id="scoreTotal">–</span><button class="hidebtn" data-hide="scoreCard">👁</button></h2>
+        <div class="cardbody">
+          <div id="scoreBox"></div>
+          <div class="row" style="margin-top:12px">
+            <span class="lbl">A / B</span>
+            <span class="val dim" id="abInfo" style="font-size:11px">Slot B empty.</span>
+          </div>
+          <div class="cluster">
+            <button class="sm" id="stashBBtn">📌 Stash to B</button>
+            <button class="sm ghost" id="swapABBtn" disabled>🔄 Swap A ⇄ B</button>
+          </div>
+          <div class="row" style="margin-top:8px"><span class="readout">Score 90+ = ready for Suno. Want higher? Use the Prompt Maximizer card.</span></div>
+        </div>
+      </div>
+
+      <!-- MAX ROLL LAB (PROMPT MAXIMIZER) -->
+      <div class="card" id="maxRollLabCard">
+        <h2><span class="dot"></span>Prompt Maximizer — keeps your styles<span class="spacer"></span><span class="scoretotal good" id="maxRollScore">–</span><button class="hidebtn" data-hide="maxRollLabCard">👁</button></h2>
+        <div class="cardbody">
+          <div class="row"><span class="val dim" style="font-family:var(--sans)">What it does: rolls many random prompts in the background, keeps the one with the best <b>Prompt Score</b>, and applies it. Your Primary / Secondary styles are always locked.</span></div>
+          <div class="cluster" style="margin-top:10px">
+            <button class="power" id="maxScoreBtn" title="20 random tries — keeps your styles">🏆 MAXIMIZE MY PROMPT</button>
+            <button class="sm power" id="maxTurboBtn" title="100 tries — slower, usually even better">🚀 Turbo — 100 tries</button>
+            <button class="sm power" id="rerollSimilarBtn" title="Rolls everything EXCEPT Primary + Secondary styles — gives you a fresh set that scores within ~5 of the current one (R key)">🎲 Re-roll similar (keep styles)</button>
+          </div>
+          <div class="toggles" id="maxChips" style="margin:12px 0"></div>
+          <div class="row" style="margin-top:12px"><span class="readout" id="maxRollStatus">Idle — press 🏆 MAXIMIZE MY PROMPT to find your best description.</span><button class="sm ghost" id="resetMaxBtn">🔓 Reset Max</button></div>
+        </div>
+      </div>
+
+      <!-- VARIATIONS -->
+      <div class="card" id="variationsCard">
+        <h2><span class="dot"></span>Variations<span class="spacer"></span><button class="hidebtn" data-hide="variationsCard">👁</button></h2>
+        <div class="cardbody">
+          <div class="cluster" style="margin-top:0;margin-bottom:12px">
+            <button class="push" data-roll="variations">🎲 Generate 3 variations</button>
+            <button class="sm ghost" id="clearVariationsBtn">🗑 Clear</button>
+          </div>
+          <div class="vari" id="variList"><div class="vcard"><div class="vbody dim">Hit "Generate 3 variations" (or ⚡ Power roll) to roll three alternative ideas, then apply the best one.</div></div></div>
+        </div>
+      </div>
+
+      <!-- HISTORY -->
+      <div class="card" id="historyCard">
+        <h2><span class="dot"></span>History<span class="spacer"></span><button class="ghost sm" id="clearHistoryBtn">🗑 Clear</button><button class="hidebtn" data-hide="historyCard">👁</button></h2>
+        <div class="cardbody">
+          <div class="hist" id="historyList"><div class="readout">Copied and applied ideas will appear here.</div></div>
+        </div>
+      </div>
+
+      <div class="foot">
+        <p><kbd>⌘K</kbd> commands · <kbd>P</kbd> power roll · <kbd>Space</kbd> audition · <kbd>⌘Z</kbd> undo · <kbd>?</kbd> all shortcuts</p>
+        <p style="margin-top:6px">Works offline · open this file directly or run <kbd>python3 -m http.server 8080</kbd></p>
+        <div class="sig">Remade from scratch — all pools preserved · Powered by Arena</div>
+      </div>
+
+    </section>
+  </main>
+</div>
+
+<!-- MANUAL LIST PICKER MODAL -->
+<div class="modal" id="pickerModal">
+  <div class="modalbox">
+    <div class="modalhead">
+      <h3 id="pickerTitle">Manual list</h3>
+      <span class="readout">every sound from the original app</span>
+      <button class="ghost sm modal-close">✕</button>
+    </div>
+    <div class="modalbody">
+      <input type="text" id="pickerSearch" placeholder="Filter…">
+      <div class="stylegrid" id="pickerGrid" style="max-height:56vh;overflow:auto"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MASTER LIBRARY MODAL -->
+<div class="modal" id="masterModal">
+  <div class="modalbox" style="width:min(940px,100%)">
+    <div class="modalhead">
+      <h3>Master Library — every rollable list</h3>
+      <span class="readout" id="masterCount"></span>
+      <button class="ghost sm modal-close">✕</button>
+    </div>
+    <div class="modalbody">
+      <input type="text" id="masterSearch" placeholder="Search all lists… (feeling, kick, world, acid, etc.)">
+      <div class="toggles" id="masterCats" style="margin:10px 0"></div>
+      <div class="stylegrid" id="masterGrid" style="max-height:56vh;overflow:auto"></div>
+    </div>
+  </div>
+</div>
+
+<!-- STYLE PICKER MODAL -->
+<div class="modal" id="styleModal">
+  <div class="modalbox">
+    <div class="modalhead">
+      <h3 id="styleModalTitle">Select style</h3>
+      <button class="ghost sm modal-close">✕</button>
+    </div>
+    <div class="modalbody">
+      <input type="text" id="styleSearch" placeholder="Search…">
+      <div class="toggles" id="styleCats" style="margin:8px 0"></div>
+      <div class="readout" id="styleScoreNote" style="margin:-4px 0 10px;color:var(--text-dim)"></div>
+      <div class="stylegrid" id="styleGrid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- COMMAND PALETTE -->
+<div class="modal" id="cmdModal">
+  <div class="modalbox" style="width:min(560px,100%)">
+    <div class="modalhead">
+      <h3>Command palette</h3>
+      <span class="readout">↑↓ navigate · ⏎ run · esc close</span>
+    </div>
+    <div class="modalbody">
+      <input type="text" id="cmdSearch" placeholder="Type a command…" autocomplete="off">
+      <div id="cmdList" class="cmdlist"></div>
+    </div>
+  </div>
+</div>
+
+<!-- SHORTCUTS -->
+<div class="modal" id="helpModal">
+  <div class="modalbox" style="width:min(560px,100%)">
+    <div class="modalhead"><h3>Keyboard shortcuts</h3><button class="ghost sm modal-close">✕</button></div>
+    <div class="modalbody">
+      <div class="keytable" id="keyTable"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div class="footerbar">
+  <span id="shortcutHint"></span>
+  <span class="readout" id="bootNote">booting…</span>
+</div>
+
+<script>
+/* =====================================================================
+   NEON FORGE II — remade from scratch.
+   ---------------------------------------------------------------------
+   The block below is generated by tools/build.js: EVERY data pool from
+   the original app is copied verbatim (styles, genres, feelings, leads,
+   bass voices, kicks, grooves, techno lab, sound design, mix, spatial,
+   texture, concepts, sparks, scales, layers, safety lists…), so no
+   sound that existed before is lost. The engine below is all new code.
+   ===================================================================== */
+/*__DATA__*/
+
+/*__ENGINE__*/
+</script>
+</body>
+</html>
