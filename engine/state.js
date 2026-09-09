@@ -25,6 +25,7 @@ import {
   CONCEPT
 } from "../data/index.js";
 import { EXTRA_POOLS } from "../data/expansion.js";
+import { EXTRA_MELODY_CONCEPT, EXTRA_MELODY_POOLS } from "../data/melody-extra.js";
 import { ORGANIC_POOLS, HYBRID_POOLS } from "../data/acoustic.js";
 import { genreWorld } from "./world.js";
 import * as DATA from "../data/index.js";
@@ -83,6 +84,57 @@ for (const k in POOL_OF) {
     POOL_OF[k] = POOL_OF[k].concat(extra);
     EXPANSION_STATS.pools++; EXPANSION_STATS.added += extra.length;
   }
+}
+
+/* ------------------------- MELODY INTENSITY -------------------------
+   The melody upgrade: intense, complex phrasing everywhere the melody
+   is described. Two parts:
+
+   1. EXTRA_MELODY_POOLS (data/melody-extra.js, generated) bolsters the
+      rolled melody pools with high-density, aggressive entries.
+   2. The relax filter below removes the simple / low-energy entries
+      (calm, gentle, peaceful, tender, slow, easy, smooth, simple…) from
+      the melody side unless an intensity counterweight makes the phrase
+      a real contrast ("serene but powerful", "soft-mannered yet
+      colossal" stay; "peaceful", "easy swaying rhythm" go).
+
+   Purely a runtime view, exactly like the hand-perc and no-stop filters:
+   the verbatim pools on disk are never edited. The filter is NOT applied
+   to feelings/flavors outside the melody block? It is — the whole emotion
+   line drives the melody's character, and the user asked for no simple
+   relax things. Contrast values survive via the counterweight rule. */
+export const MELODY_KEYS = new Set(["feeling", "flavor", "direction",
+  "leadVoice", "leadPerf", "harmony", "arpeggio", "contour", "rhythm"]);
+export const MELODY_SOFT_RE = /\b(simple|simpl|basic|plain|minimal|sparse|restrained|quiet|subtle|soft|gentle|calm|soothing|serene|peaceful|content|tender|dreamy|mellow|smooth|easy|lazy|unhurried|laid[- ]?back|slow|light|lullab|drift|float|airy|delicate|feather|glacial|breez|languid|leisurely|cozy|vague|warm|tranquil|peace|hum|song|stroll)\b/i;
+export const MELODY_INTENSE_RE = /\b(titanic|massive|huge|colossal|violent|fierce|storm|blazing|burning|explosive|raging|thunder|seismic|monstrous|brutal|furious|ferocious|savage|relentless|unrelenting|power|crushing|pounding|hammering|slamming|piercing|razor|white[- ]?hot|molten|volcanic|merciless|unbreakable|unstoppable|enormous|giant|feral|predatory|apocalyptic|cataclysmic|devastating|deadly|killer|lethal|manic|frenzied|hysterical|frantic|unhinged|barbed|cutting|shredding|scorching|searing|attack|detonat|explod|slam|strike|wars?\b|warfare|warlike|war-cry|warcry|fury|rage|blade|steel|iron|chainsaw|machine[\s-]?gun|cannon|arsenal|siege|batt\w*|fuse\w*|voltage|grid|alarm\w*|siren\w*|insane|berserk|fractur|shatter|outrun|outflank|outgrow|aggress)\b/i;
+export function isRelaxMelody(v) {
+  return typeof v === "string" && MELODY_SOFT_RE.test(v) && !MELODY_INTENSE_RE.test(v);
+}
+const _relaxCache = new Map();
+export function withoutRelaxMelody(arr) {
+  if (!Array.isArray(arr)) return arr;
+  let out = _relaxCache.get(arr);
+  if (!out) {
+    out = arr.filter(x => !isRelaxMelody(x));
+    _relaxCache.set(arr, out);
+  }
+  return out;
+}
+export const MELODY_EXPANSION_STATS = { pools: 0, added: 0 };
+for (const k in POOL_OF) {
+  const nm = POOL_NAME_OF.get(POOL_OF[k]);
+  const extra = EXTRA_MELODY_POOLS[nm];
+  if (extra && extra.length && MELODY_KEYS.has(k)) {
+    POOL_OF[k] = POOL_OF[k].concat(extra);
+    MELODY_EXPANSION_STATS.pools++; MELODY_EXPANSION_STATS.added += extra.length;
+  }
+}
+/* Melody-concept pools: verbatim + generated extras, relax entries
+   filtered, memoised once at module load. */
+export const MELODY_CONCEPT_POOL = {};
+for (const k in MELODY_CONCEPT) {
+  MELODY_CONCEPT_POOL[k] = withoutRelaxMelody(
+    MELODY_CONCEPT[k].concat(EXTRA_MELODY_CONCEPT[k] || []));
 }
 
 /* ---------------------------- WORLD-AWARE POOLS ----------------------------
@@ -169,7 +221,9 @@ export function poolFor(s, key) {
   /* the filters wrap whichever world-specific pool ends up selected */
   const clean = p => {
     let q = (s && s.noHandPerc) ? withoutHandPerc(p) : p;
-    return (s && s.noStop) ? withoutNoStop(q) : q;
+    q = (s && s.noStop) ? withoutNoStop(q) : q;
+    /* melody intensity: simple / relaxed phrasing never rolls */
+    return MELODY_KEYS.has(key) ? withoutRelaxMelody(q) : q;
   };
   const base = clean(raw);
   /* HIDE-BEATS gives back nothing for beat / sound atoms, so a stale value
@@ -244,7 +298,7 @@ ROLL_FN.chordColor = s => { s.scaleId = pickScaleId(s); s.chordColor = scaleOf(s
 ROLL_FN.rootPc = s => { s.rootPc = Math.floor(random() * 12); };
 ROLL_FN.scaleId = s => { s.scaleId = pickScaleId(s); s.chordColor = scaleOf(s).n; };
 ROLL_FN.concept = s => { for (const k in s.concept) s.concept[k] = pick(CONCEPT[k]); };
-ROLL_FN.melodyConcept = s => { if (!s.melodyConcept) s.melodyConcept = {}; for (const k in MELODY_CONCEPT) s.melodyConcept[k] = pick(MELODY_CONCEPT[k]); };
+ROLL_FN.melodyConcept = s => { if (!s.melodyConcept) s.melodyConcept = {}; for (const k in MELODY_CONCEPT_POOL) s.melodyConcept[k] = pick(MELODY_CONCEPT_POOL[k]); };
 /* composite atoms route through poolFor too, or they leak techno words
    (e.g. a "supersaw stack" counter-melody) into acoustic prompts */
 /* NO-STOP hides the counter/second lines ("counter-bass"): they give the
@@ -261,7 +315,7 @@ ROLL_FN["voice-relation"] = s => { s.voiceRelation = pick(["supports", "follows"
 ROLL_FN.arrangement = s => { s.arrangement = s.noStop ? pickNoStopArrangement(s) : pickArrangementFor(s); };
 export const CONCEPT_KEYS = ["world", "location", "visual", "narrative", "sensation", "event", "conflict", "crowd", "title", "transform"];
 CONCEPT_KEYS.forEach(k => { ROLL_FN["concept-" + k] = s => { s.concept[k] = pick(CONCEPT[k]); }; });
-["story", "role", "motion", "hook"].forEach(k => { ROLL_FN["melodyConcept-" + k] = s => { if (!s.melodyConcept) s.melodyConcept = {}; s.melodyConcept[k] = pick(MELODY_CONCEPT[k]); }; });
+["story", "role", "motion", "hook"].forEach(k => { ROLL_FN["melodyConcept-" + k] = s => { if (!s.melodyConcept) s.melodyConcept = {}; s.melodyConcept[k] = pick(MELODY_CONCEPT_POOL[k] || MELODY_CONCEPT[k]); }; });
 
 /* ---------------------------- GROUPS ---------------------------- */
 export const GROUPS = {

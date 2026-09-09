@@ -19,6 +19,7 @@
 import * as E from "../engine/index.js";
 import * as D from "../data/index.js";
 import * as P from "../engine/prompt.js";
+import { EXTRA_MELODY_CONCEPT, EXTRA_MELODY_POOLS } from "../data/melody-extra.js";
 
 let passes = 0, failures = 0;
 function ok(cond, msg) {
@@ -433,6 +434,61 @@ section("Vocal-cue neutralization (output-time)");
   for (const keep of ["Songkran", "Songo", "Hooligan", "talking drum phrases", "breathless", "Breather", "humanized", "single note"]) {
     ok(P.stripVocalCue(keep) === keep, "non-vocal term untouched: " + keep);
   }
+}
+
+/* ---------------- melody intensity (no simple/relax) ---------------- */
+section("Melody intensity (no simple/relax)");
+{
+  const SOFT = E.MELODY_SOFT_RE, INTENSE = E.MELODY_INTENSE_RE;
+  /* every generated extra survives the runtime relax filter */
+  let genDropped = 0;
+  for (const k in EXTRA_MELODY_CONCEPT)
+    for (const v of EXTRA_MELODY_CONCEPT[k])
+      if (E.isRelaxMelody(v)) { genDropped++; console.log("  ✗ gen concept dropped: " + v); }
+  for (const k in EXTRA_MELODY_POOLS)
+    for (const v of EXTRA_MELODY_POOLS[k])
+      if (E.isRelaxMelody(v)) { genDropped++; console.log("  ✗ gen pool dropped: " + v); }
+  ok(genDropped === 0, "generated melody extras never get filtered at runtime");
+
+  /* the runtime melody pools contain zero relax-only entries */
+  let softLeft = 0;
+  for (const key of ["feeling", "flavor", "direction", "leadVoice", "leadPerf",
+                     "harmony", "arpeggio", "contour", "rhythm"]) {
+    const p = E.poolFor({ techOnly: true, styleFit: true, noHandPerc: false, noStop: false }, key);
+    for (const v of p) if (E.isRelaxMelody(v)) { softLeft++; console.log("  ✗ relax melody: " + key + " [" + v + "]"); }
+  }
+  ok(softLeft === 0, "no simple/relax-only melody value in any runtime pool (" + softLeft + ")");
+
+  /* melody concepts: richer + more numerous than the verbatim source */
+  ok(E.MELODY_CONCEPT_POOL.story.length > 80 && E.MELODY_CONCEPT_POOL.role.length > 60 &&
+     E.MELODY_CONCEPT_POOL.motion.length > 60 && E.MELODY_CONCEPT_POOL.hook.length > 60,
+     "melody concept pools expanded past the verbatim sets (" +
+     Object.keys(E.MELODY_CONCEPT_POOL).map(k => k + ":" + E.MELODY_CONCEPT_POOL[k].length).join(" ") + ")");
+  let relaxConcept = 0;
+  for (const k in E.MELODY_CONCEPT_POOL)
+    for (const v of E.MELODY_CONCEPT_POOL[k]) if (E.isRelaxMelody(v)) { relaxConcept++; console.log("  ✗ concept: " + v); }
+  ok(relaxConcept === 0, "no relax-only phrase in melody concept pools");
+
+  /* rolled prompts: melody words are never soft-only, and complex concepts show up */
+  const softAt = ["feeling", "flavor", "direction", "leadVoice", "leadPerf", "harmony",
+    "arpeggio", "contour", "rhythm"];
+  let rolledSoft = 0, complexSeen = 0;
+  for (let i = 0; i < 120; i++) {
+    const s = E.defaultState();
+    s.techOnly = i % 2 === 0; s.styleFit = true;
+    E.roll(s, "everything");
+    for (const k of softAt) if (E.isRelaxMelody(s[k])) rolledSoft++;
+    const mc = s.melodyConcept || {};
+    const joined = Object.values(mc).join(" ");
+    if (/\b(detonat|explod|sieg|war\w*|fury|rage|blade|steel|attack|adrenaline)\b/i.test(joined)) complexSeen++;
+  }
+  ok(rolledSoft === 0, "no roll produces a relax-only melody word across 120 rolls (" + rolledSoft + ")");
+  ok(complexSeen > 0, "complex/intense melody concepts actually roll (" + complexSeen + "/120)");
+
+  /* the generated data is deterministic */
+  ok(JSON.stringify(EXTRA_MELODY_CONCEPT.story) === JSON.stringify(EXTRA_MELODY_CONCEPT.story) &&
+     JSON.stringify(EXTRA_MELODY_POOLS.DIRECTIONS) === JSON.stringify(EXTRA_MELODY_POOLS.DIRECTIONS),
+     "melody extras deterministic");
 }
 
 /* ---------------- pool integrity ---------------- */
