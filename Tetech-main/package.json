@@ -1,0 +1,12 @@
+{
+  "name": "neon-forge",
+  "version": "2.0.0",
+  "private": true,
+  "description": "NEON FORGE — offline-first techno prompt lab for Suno (single-file app)",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node qa/test.js",
+    "lint:pools": "node qa/pools.js"
+  },
+  "devDependencies": { "jsdom": "^24.0.0" }
+}

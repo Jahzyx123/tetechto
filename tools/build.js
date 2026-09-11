@@ -1,0 +1,124 @@
+#!/usr/bin/env node
+/* =====================================================================
+   NEON FORGE — dist build (optional)
+   ---------------------------------------------------------------------
+   Inlines the whole ES-module graph (ui → engine → data) plus the
+   stylesheet into a single self-contained dist/index.html for easy
+   sharing. The split modules stay the source of truth — this is just a
+   packaging step, no transpilation, no dependencies.
+
+   Each module becomes an IIFE returning its exports, imports become
+   destructuring from the already-evaluated module, so module-local
+   names (helpers like `$`) can never collide.
+
+   Usage:  node tools/build.js
+   Output: dist/index.html
+   ===================================================================== */
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(__dirname, "..");
+const ENTRY = path.join(ROOT, "ui", "app.js");
+const HTML_IN = path.join(ROOT, "index.html");
+const CSS_IN = path.join(ROOT, "ui", "style.css");
+const OUT_DIR = path.join(ROOT, "dist");
+const OUT = path.join(OUT_DIR, "index.html");
+
+const IMPORT_RE = /^import\s*\{([^}]+)\}\s*from\s*["']([^"']+)["'];?\s*$/gm;
+const NS_IMPORT_RE = /^import\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s+from\s*["']([^"']+)["'];?\s*$/gm;
+const REEXPORT_RE = /^export\s*\*\s*from\s*["']([^"']+)["'];?\s*$/gm;
+const EXPORT_DECL_RE = /^export\s+(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/gm;
+
+/* ---------------- module graph ---------------- */
+const modules = new Map(); // absPath -> {id, src, deps, exports}
+let counter = 0;
+
+function resolve(from, spec) {
+  return path.normalize(path.join(path.dirname(from), spec));
+}
+
+function load(abs) {
+  if (modules.has(abs)) return modules.get(abs);
+  const src = fs.readFileSync(abs, "utf8");
+  const mod = { id: "__M" + (counter++) + "_" + path.basename(abs).replace(/[^\w]/g, "_"), abs, src, deps: [], reexports: [], exports: [] };
+  modules.set(abs, mod);
+  for (const m of src.matchAll(IMPORT_RE)) mod.deps.push({ names: m[1].split(",").map(x => x.trim()).filter(Boolean), abs: resolve(abs, m[2]) });
+  for (const m of src.matchAll(NS_IMPORT_RE)) mod.deps.push({ names: ["*" + m[1]], abs: resolve(abs, m[2]) });
+  for (const m of src.matchAll(REEXPORT_RE)) mod.reexports.push(resolve(abs, m[1]));
+  for (const m of src.matchAll(EXPORT_DECL_RE)) mod.exports.push(m[1]);
+  // recurse
+  for (const d of mod.deps) load(d.abs);
+  for (const r of mod.reexports) load(r);
+  return mod;
+}
+
+function topo(entryAbs) {
+  const order = [], seen = new Set(), visiting = new Set();
+  (function visit(abs) {
+    if (seen.has(abs)) return;
+    if (visiting.has(abs)) throw new Error("import cycle at " + abs);
+    visiting.add(abs);
+    const mod = modules.get(abs);
+    for (const d of mod.deps) visit(d.abs);
+    for (const r of mod.reexports) visit(r);
+    visiting.delete(abs);
+    seen.add(abs);
+    order.push(mod);
+  })(entryAbs);
+  return order;
+}
+
+function allExports(mod) {
+  const out = new Set(mod.exports);
+  for (const r of mod.reexports) for (const e of allExports(modules.get(r))) out.add(e);
+  return [...out];
+}
+
+function emit(mod) {
+  let body = mod.src;
+  // imports → destructuring from the evaluated module object
+  body = body.replace(IMPORT_RE, (all, names, spec) => {
+    const dep = modules.get(resolve(mod.abs, spec));
+    const clean = names.split(",").map(x => x.trim()).filter(Boolean)
+      .map(n => n.includes(" as ") ? n.replace(/\s+as\s+/, ": ") : n);
+    return "const { " + clean.join(", ") + " } = " + dep.id + ";";
+  });
+  // namespace imports → const NAME = moduleObject
+  body = body.replace(NS_IMPORT_RE, (all, name, spec) =>
+    "const " + name + " = " + modules.get(resolve(mod.abs, spec)).id + ";");
+  // re-exports handled below; drop the statements
+  body = body.replace(REEXPORT_RE, "");
+  // strip `export ` from declarations
+  body = body.replace(/^export\s+(?=(?:const|let|var|function|class)\s)/gm, "");
+  const spread = mod.reexports.map(r => "..." + modules.get(r).id).join(", ");
+  const named = mod.exports.join(", ");
+  const ret = "{ " + [spread, named].filter(Boolean).join(", ") + " }";
+  return "const " + mod.id + " = (() => {\n" + body + "\nreturn " + ret + ";\n})();";
+}
+
+function main() {
+  load(ENTRY);
+  const order = topo(ENTRY);
+  const bundle = order.map(emit).join("\n\n");
+
+  let html = fs.readFileSync(HTML_IN, "utf8");
+  const css = fs.readFileSync(CSS_IN, "utf8");
+  html = html.replace(/<link rel="stylesheet"[^>]*>/, () => "<style>\n" + css + "\n</style>");
+  /* tolerate the ?v=… cache-bust query added by tools/stamp.js */
+  html = html.replace(/<script type="module" src="\.\/ui\/app\.js(?:\?[^"]*)?"><\/script>/,
+    () => '<script type="module">\n"use strict";\n' + bundle + "\n</script>");
+  html = html.replace("<title>NEON FORGE — Suno prompt lab</title>",
+    "<title>NEON FORGE — Suno prompt lab</title>\n<!-- single-file build generated by tools/build.js — source of truth lives in /data /engine /ui -->");
+
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  fs.writeFileSync(OUT, html);
+  const kb = Math.round(html.length / 1024);
+  console.log("Bundled " + order.length + " modules → dist/index.html (" + kb + " KB)");
+  if (kb > 150) console.log("note: single-file build exceeds 150 KB by design (it embeds ~" +
+    Math.round(order.filter(m => m.abs.includes(path.sep + "data" + path.sep)).reduce((a, m) => a + m.src.length, 0) / 1024) +
+    " KB of verbatim pool data); the modular app itself stays split.");
+}
+
+main();
