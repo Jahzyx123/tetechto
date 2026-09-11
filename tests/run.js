@@ -636,11 +636,13 @@ section("Sound pool expansion");
 {
   const { EXPANSION_STATS, POOL_OF } = await import("../engine/state.js");
   const { EXTRA_POOLS } = await import("../data/expansion.js");
-  ok(EXPANSION_STATS.pools >= 60, "expansion merged into ≥60 pools (" + EXPANSION_STATS.pools + ")");
-  ok(EXPANSION_STATS.added >= 3000, "expansion adds ≥3000 entries (+" + EXPANSION_STATS.added + ")");
-  ok(POOL_OF.kick.length >= 300, "KICKS grew to " + POOL_OF.kick.length);
-  ok(POOL_OF.leadVoice.length >= 350, "LEADS grew to " + POOL_OF.leadVoice.length);
-  ok(POOL_OF.bassVoice.length >= 350, "BASS_VOICES grew to " + POOL_OF.bassVoice.length);
+  ok(EXPANSION_STATS.pools >= 90, "expansion merged into ≥90 pools (" + EXPANSION_STATS.pools + ")");
+  ok(EXPANSION_STATS.added >= 8000, "expansion adds ≥8000 entries (+" + EXPANSION_STATS.added + ")");
+  ok(POOL_OF.kick.length >= 420, "KICKS grew to " + POOL_OF.kick.length);
+  ok(POOL_OF.leadVoice.length >= 600, "LEADS grew to " + POOL_OF.leadVoice.length);
+  ok(POOL_OF.bassVoice.length >= 500, "BASS_VOICES grew to " + POOL_OF.bassVoice.length);
+  ok(POOL_OF.mixGlue.length >= 130, "MIX_GLUE grew to " + POOL_OF.mixGlue.length);
+  ok(POOL_OF.eqType.length >= 90, "EQ_TYPES grew to " + POOL_OF.eqType.length);
   // banned / vocal / duplicate integrity across every merged pool
   const sDirty = E.defaultState(); sDirty.instrumental = true;
   const bad = [], dup = [];
