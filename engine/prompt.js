@@ -1309,6 +1309,60 @@ export function scorePrompt(state) {
       : "Emotion descriptors pull in one direction."
   });
 
+  /* SUNO 6 Token hygiene: zero error/auto-replace tokens in the box
+     (tekno, crossfade, gear brands, model numbers). MAX actively avoids
+     states whose wording Suno would mangle. */
+  const HOSTILE_RE = /\btekno\b|crossfad|\brytm\b|electribe|machinedrum|\bkorg\b|\bMS-20\b|\bmoog\b|oberheim|\bTR-\d{3}\b|\bRD-\d\b|\bLXR-02\b|\bCR-78\b|\b727\b|\bPioneer\b(?!ing)|\bOn2\b|\b2\.0\b/i;
+  const hostileHit = sp.match(HOSTILE_RE);
+  items.push({
+    label: "Token hygiene", score: hostileHit ? 40 : 100,
+    note: hostileHit ? "Suno-hostile token in the box: \"" + hostileHit[0] + "\""
+      : "No error/auto-replace tokens — Suno reads every word as written."
+  });
+
+  /* SUNO 6 Structure variety: the Lyrics skeleton must never repeat a
+     cue line (v6 renders near-identical repeated sections as a literal
+     repeat) and repeated sections must escalate. */
+  const cueLines = sectionCues(s).split("\n").filter(l => l.startsWith("("));
+  const cueDupes = cueLines.length - new Set(cueLines).size;
+  const hasEscalation = !/\[Build\][\s\S]*\[Build\]/.test(sectionCues(s)) ||
+    /final build|climbs higher/.test(sectionCues(s));
+  const structScore = cueDupes === 0 && hasEscalation ? 100 : Math.max(40, 100 - cueDupes * 25 - (hasEscalation ? 0 : 15));
+  items.push({
+    label: "Structure variety", score: structScore,
+    note: cueDupes === 0 && hasEscalation
+      ? cueLines.length + " sections, every cue distinct and escalating."
+      : cueDupes + " repeated cue line(s)" + (hasEscalation ? "" : " + no escalation") + " — MAX fixes both."
+  });
+
+  /* Tempo fit: techno lives in the weighted 128-156 band the roller
+     draws from (up to 156 typical, 170 hard ceiling); outside techno,
+     any musical tempo passes. */
+  const tempoOk = s.techOnly ? (s.bpm >= 128 && s.bpm <= 156 ? 2 : s.bpm <= 170 ? 1 : 0)
+    : (s.bpm >= 70 && s.bpm <= 190 ? 2 : 1);
+  items.push({
+    label: "Tempo fit", score: tempoOk === 2 ? 100 : tempoOk === 1 ? 85 : 50,
+    note: s.bpm + " BPM" + (tempoOk === 2 ? " — inside the style's core band."
+      : tempoOk === 1 ? " — edge of the band; ROLL BPM for the core range." : " — outside the style's band.")
+  });
+
+  /* Descriptor diversity: repeated word PAIRS across the box read as
+     padding to the model (vocabulary variety only catches single
+     words). Penalizes bigrams used 3+ times. */
+  const words2 = sp.toLowerCase().match(/[a-z0-9']+/g) || [];
+  const big = {};
+  for (let i = 0; i < words2.length - 1; i++) {
+    const g = words2[i] + " " + words2[i + 1];
+    big[g] = (big[g] || 0) + 1;
+  }
+  const hotBigrams = Object.values(big).filter(n => n >= 3).length;
+  const divScore = Math.max(40, 100 - hotBigrams * 8);
+  items.push({
+    label: "Descriptor diversity", score: divScore,
+    note: hotBigrams === 0 ? "No descriptor pair overused — fresh wording throughout."
+      : hotBigrams + " word pair(s) used 3+ times — MAX diversifies."
+  });
+
   /* Sound density measured against what is actually achievable, not a flat
      table that saturates at 30. */
   let soundChars = 0, soundCount = 0;

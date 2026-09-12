@@ -24,6 +24,10 @@ prompting rules changed, and every builder in this lab follows them:
   leads with genre → influence → BPM → key before any detail.
 * **No bracket tags in the style box.** Brackets belong to the Lyrics
   field — and v6 demonstrably *reads* them there.
+* **Suno-safe style pool.** Names that make Suno error or auto-replace
+  ("Free-Party Tekno", "Pioneer Techno", "Hardgroove 2.0") are renamed at
+  the pool join layer — nothing hostile ever rolls, shows in the style
+  card, or lands in a picker or saved library (5,335 clean styles).
 * **Techno-first style-box shape.** The layer order follows the researched
   formula: identity (genre/influence/BPM/key) → mood/energy → **drums →
   bass** (the rhythm section IS techno's identity) → lead/harmony →
@@ -102,10 +106,15 @@ every section of the doc carries new information.
 * **The freed budget buys sounds.** Tags + policy used to cost ~100
   style-box characters; the densifier now spends all of them on extra
   rolled sounds.
-* **Score = v6 quality.** `scorePrompt` adds **Exclude hygiene** (zero
-  inline negatives) and **Mood coherence** (v6 averages contradictory moods
-  into mush), alongside length, density, variety and coverage. MAX
-  hill-climbs on all of them.
+* **Score = v6 quality.** `scorePrompt` now checks 16 criteria — including
+  **Exclude hygiene** (zero inline negatives), **Mood coherence** (v6
+  averages contradictory moods into mush), **Token hygiene** (zero
+  error/auto-replace words), **Structure variety** (no repeated cue lines,
+  repeats escalate), **Tempo fit** (the style's BPM band) and **Descriptor
+  diversity** (no word pair used 3+ times). MAX hill-climbs on all of
+  them, and its tie-break adopts the most *different* equal-scoring
+  candidate — so repeated clicks at the ceiling hand back genuinely
+  different sets, never clones.
 * **Judge both takes.** v6's two takes per generation can differ more than
   a deliberate prompt edit — the output panel reminds you, and suggests
   raising **Style Influence** (it ships at 50%).

@@ -34,6 +34,7 @@ function freshTechno() {
   E.roll(s, "everything");
   return s;
 }
+function nameSetSizeForTest() { return new Set(E.STYLES.map(x => x.n.toLowerCase())).size; }
 
 /* ---------------- prompt budget ---------------- */
 section("Prompt budgets (techno-only)");
@@ -85,6 +86,7 @@ section("Techno-only isolation");
   }
   ok(D.STYLES.length >= 838, "verbatim techno pool intact at ≥838 styles (" + D.STYLES.length + ")");
   ok(E.STYLES.length >= 5000, "expanded techno pool is ≥5000 styles (" + E.STYLES.length + ")");
+  ok(E.STYLES.length === nameSetSizeForTest(), "engine pool size matches unique-name count");
   ok(allFromPool, "techno-only rolls come exclusively from the techno pool");
   ok(bpmOk, "techno tempo stays in the weighted 128–156 band (last " + s.bpm + ")");
   ok(distinct, "primary and secondary style never coincide");
@@ -431,6 +433,10 @@ section("SUNO 6.0 field routing (positive style box / exclude / cues)");
   const sc = E.scorePrompt(freshTechno());
   ok(sc.items.some(i => i.label === "Exclude hygiene"), "score includes Exclude hygiene (v6)");
   ok(sc.items.some(i => i.label === "Mood coherence"), "score includes Mood coherence (v6)");
+  ok(sc.items.some(i => i.label === "Token hygiene"), "score includes Token hygiene (Suno error/auto-replace words)");
+  ok(sc.items.some(i => i.label === "Structure variety"), "score includes Structure variety (cue repeats + escalation)");
+  ok(sc.items.some(i => i.label === "Tempo fit"), "score includes Tempo fit (style band)");
+  ok(sc.items.some(i => i.label === "Descriptor diversity"), "score includes Descriptor diversity (bigram redundancy)");
 
   /* SUNO 6 techno-first prompt shape: identity -> mood -> drums -> bass
      -> lead/harmony -> production (order-of-appearance check) */
@@ -606,6 +612,17 @@ section("Suno token hygiene (no error/auto-replace tokens)");
   const hostile = E.STYLES.filter(x => BAD.test(x.n));
   ok(hostile.every(x => P.fixSunoTokens(x.n) !== x.n),
     "every pool style carrying a hostile token is rewritten by fixSunoTokens (" + hostile.length + " verbatim carriers)");
+
+  /* SUNO-SAFE POOL: the engine-level style pool must roll clean names
+     (the join layer renames the verbatim Tekno/Pioneer/2.0 carriers) */
+  const POOL_BAD = /\btekno\b|\bPioneer\b(?!ing)|\b2\.0\b/i;
+  const poolBad = E.STYLES.filter(x => POOL_BAD.test(x.n));
+  ok(poolBad.length === 0, "engine style pool rolls Suno-safe names only (" + poolBad.length + " hostile)");
+  const nameSet = new Set(E.STYLES.map(x => x.n.toLowerCase()));
+  ok(nameSet.size === E.STYLES.length, "no duplicate style names after the rename join");
+  ok(!nameSet.has("free-party tekno") && nameSet.has("free-party techno")
+    && nameSet.has("pioneering techno") && nameSet.has("hardgroove neo techno"),
+    "verbatim carriers renamed at the join (Free-Party Techno / Pioneering Techno / Hardgroove Neo Techno)");
 
   /* FULL-POOL AUDIT — deterministic, not sampled: EVERY string in EVERY
      pool (data exports, engine exports, merged sound pools, concept and
@@ -1631,6 +1648,24 @@ section("MAX always produces a new set");
   ok(changed >= 1, "MAX rerolls the sounds until it converges (" + changed + "/12 clicks changed)");
   ok(regressed === 0, "MAX never drops the score, ever");
   ok(typeof sawConverged === "boolean", "rollMax exposes a converged/changed flag");
+
+  /* SUNO 6 MAX: better AND different — equal-score clicks adopt the
+     most novel candidate, so repeated clicks never hand back clones */
+  {
+    const sM = E.defaultState(); sM.techOnly = true; E.roll(sM, "everything");
+    const prompts = new Set([E.buildStylePrompt(sM)]);
+    let neverWorse = true, changedClicks = 0, bestScore = E.scorePrompt(sM).total;
+    for (let i = 0; i < 3; i++) {
+      const before = bestScore;
+      const r = E.roll(sM, "everything", { mode: "max", tries: 48, keepStyle: true });
+      bestScore = Math.max(bestScore, r.score);
+      if (r.score < before) neverWorse = false;
+      if (r.changed) { changedClicks++; prompts.add(E.buildStylePrompt(sM)); }
+    }
+    ok(neverWorse, "novelty MAX never returns a worse score");
+    ok(changedClicks === 0 ? true : prompts.size >= 2,
+      "MAX clicks produce distinct prompts (" + prompts.size + " distinct over " + changedClicks + " changed clicks)");
+  }
   ok(s.primaryStyle === style && s.secondaryStyle === sec, "12 MAX clicks all kept the style");
 }
 

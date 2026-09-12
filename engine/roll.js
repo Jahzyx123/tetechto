@@ -15,7 +15,7 @@
    style-fit auto-curation exactly like the legacy engine did. */
 import { ROLL_FN, GROUPS, HIDE_BEATS_KEYS } from "./state.js";
 import { newSeed, setSeed, random } from "./prng.js";
-import { scorePrompt } from "./prompt.js";
+import { scorePrompt, buildStylePrompt } from "./prompt.js";
 import { styleFitCards, ELECTRONIC_LEAN_CARDS, FIT_GROUPS, SOUND_LITE_CARDS, SOUND_LITE_LAYERS_KEEP, HIDE_BEATS_CARDS, HIDE_BEATS_LAYERS_KEEP } from "./world.js";
 import { LAYERS } from "../data/safety.js";
 
@@ -100,17 +100,40 @@ function rollMax(state, scope, keys, opts) {
      already covered by the tie pool below (equal-scoring candidates that
      differ from the current set), so no downgrade tolerance is needed.
      This used to be 2, which let a click cost you up to 2 points. */
+  /* NOVELTY TIE-BREAK — "better AND different": when several candidates
+     share the top score, adopt the one whose PROMPT differs most from
+     what you have (bigram distance). Repeated MAX clicks at the ceiling
+     then cycle genuinely different sets instead of near-clones. Pure
+     comparison, so MAX stays deterministic per seed. */
+  const bigramsOf = sp => {
+    const w = sp.toLowerCase().match(/[a-z0-9']+/g) || [];
+    const set = new Set();
+    for (let i = 0; i < w.length - 1; i++) set.add(w[i] + " " + w[i + 1]);
+    return set;
+  };
+  const noveltyVs = (cand, curBigrams) => {
+    const A = bigramsOf(buildStylePrompt(cand));
+    if (!A.size || !curBigrams.size) return 0;
+    let hit = 0;
+    for (const g of A) if (curBigrams.has(g)) hit++;
+    return 1 - hit / A.size;
+  };
+  const mostNovel = (pool, curBigrams) => {
+    let winner = pool[0], wn = -1;
+    for (const c of pool) { const n = noveltyVs(c, curBigrams); if (n > wn) { wn = n; winner = c; } }
+    return winner;
+  };
   let improved = false, variation = false, converged = false;
   if (best && bestScore > startScore) {
-    /* a genuine improvement: pick randomly among the equally-best so
-       repeat clicks at the same score still vary */
-    const winner = ties.length ? ties[Math.floor(random() * ties.length)] : best;
+    /* a genuine improvement: among the equally-best, take the one that
+       sounds least like the current set */
+    const winner = ties.length > 1 ? mostNovel(ties, bigramsOf(buildStylePrompt(state))) : (ties[0] || best);
     improved = true;
     for (const k of Object.keys(winner)) state[k] = winner[k];
   } else if (equals.length) {
-    /* nothing beat the current set, but something equalled it: adopt a
-       fresh equal-scoring variation. Never worse, never a dead click. */
-    const winner = equals[Math.floor(random() * equals.length)];
+    /* nothing beat the current set, but something equalled it: adopt the
+       most DIFFERENT equal-scoring variation. Never worse, never dead. */
+    const winner = equals.length > 1 ? mostNovel(equals, bigramsOf(buildStylePrompt(state))) : equals[0];
     variation = true;
     bestScore = startScore;
     for (const k of Object.keys(winner)) state[k] = winner[k];

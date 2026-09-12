@@ -16,8 +16,33 @@ import { random, pick } from "./prng.js";
    The verbatim STYLES / GENRES pools are never edited on disk; the
    generated additions from data/styles-extra.js are concatenated here.
    EXTRA_SUBS bolts new sub-styles onto genres that already exist, which
-   multiplies the combo space without inventing whole new genres. */
-export const STYLES = BASE_STYLES.concat(EXTRA_STYLES);
+   multiplies the combo space without inventing whole new genres.
+
+   SUNO-SAFE STYLE NAMES: a handful of verbatim names carry tokens Suno
+   errors on or auto-replaces ("Free-Party Tekno", "Pioneer Techno",
+   "Hardgroove 2.0"). The output layer rewrites them (fixSunoTokens in
+   engine/prompt.js), but the ROLLED name also shows in the style card,
+   the manual picker and saved libraries — so the pool is renamed at
+   this join layer instead. Rules mirror fixSunoTokens (kept in sync by
+   the token-hygiene tests); the data files stay verbatim. */
+const SUNO_SAFE_NAME = n => n
+  .replace(/\bTekno\b/g, "Techno")
+  .replace(/\btekno\b/g, "techno")
+  .replace(/\bPioneer\b(?!ing)/g, "Pioneering")
+  .replace(/\s*2\.0\s+Techno\b/g, " Neo Techno")
+  .replace(/\s*2\.0\b/g, "");
+const BASE_STYLES_SAFE = BASE_STYLES.map(s => ({ ...s, n: SUNO_SAFE_NAME(s.n) }));
+export const STYLES = (() => {
+  const seen = new Set();
+  const out = [];
+  for (const s of BASE_STYLES_SAFE.concat(EXTRA_STYLES)) {
+    const k = s.n.toLowerCase();
+    if (seen.has(k)) continue;          // renamed verbatim may shadow a generated name
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+})();
 export const GENRES = BASE_GENRES
   .map(g => (EXTRA_SUBS[g.n] ? { ...g, subs: g.subs.concat(EXTRA_SUBS[g.n]) } : g))
   .concat(EXTRA_GENRES);
