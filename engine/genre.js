@@ -16,8 +16,47 @@ import { random, pick } from "./prng.js";
    The verbatim STYLES / GENRES pools are never edited on disk; the
    generated additions from data/styles-extra.js are concatenated here.
    EXTRA_SUBS bolts new sub-styles onto genres that already exist, which
-   multiplies the combo space without inventing whole new genres. */
-export const STYLES = BASE_STYLES.concat(EXTRA_STYLES);
+   multiplies the combo space without inventing whole new genres.
+
+   Every style name passes through canonStyleName() at assembly so a few
+   generator artifacts are fixed ONCE here and every surface (rolls,
+   picker, stats, share links) sees the same clean names. */
+/* Genuine free-party scene names where the "Tekno" K-spelling is the real
+   genre name (verbatim pool): the bare "Tekno" style, Free-Party/Tribe
+   Tekno and their "Maximum" variants, plus prefixed generated versions
+   ("Feral Free-Party Tekno"). Hardtek/Tribetek compounds are separate
+   words and never match the bare-\bTekno\b rule anyway. */
+const TEKNO_KEEP = /\b(?:Free-Party|Tribe)(?: Maximum)? Tekno\b/;
+/* Collapse generator/expansion artifacts in a style name:
+   1. the free-party K-spelling used as a GENERIC techno noun
+      ("Pure Amsterdam Tekno" -> "Pure Amsterdam Techno";
+       "Acid Tekno" -> "Acid Techno"), while genuine scene names survive;
+   2. adjacent doubled words ("Ultra Granular Granular Techno"). */
+export function canonStyleName(name) {
+  let t = String(name == null ? "" : name).trim();
+  const keep = [];
+  t = t.replace(TEKNO_KEEP, m => { keep.push(m); return "" + (keep.length - 1) + ""; });
+  if (t.trim().toLowerCase() !== "tekno") {
+    t = t.replace(/\bTekno\b/g, m => (m[0] === "T" ? "Techno" : "techno"));
+  }
+  t = t.replace(/(\d+)/g, (m, i) => (keep[+i] != null ? keep[+i] : m));
+  t = t.replace(/\b(\w+)((\s+|-\s*)\1\b)+/gi, "$1")
+       .replace(/\s{2,}/g, " ").trim();
+  return t;
+}
+function canonStyleEntry(st) { return { ...st, n: canonStyleName(st.n) }; }
+function dedupeStyles(list) {
+  const seen = new Set();
+  const out = [];
+  for (const st of list) {
+    const key = st.n.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(st);
+  }
+  return out;
+}
+export const STYLES = dedupeStyles(BASE_STYLES.concat(EXTRA_STYLES).map(canonStyleEntry));
 export const GENRES = BASE_GENRES
   .map(g => (EXTRA_SUBS[g.n] ? { ...g, subs: g.subs.concat(EXTRA_SUBS[g.n]) } : g))
   .concat(EXTRA_GENRES);
@@ -67,17 +106,8 @@ function pickClean(s, arr, get) {
   return v;
 }
 
-/* The generated expansion pool (data/styles-extra.js) contains a few
-   degenerate names where a modifier repeats the core word:
-   "Ultra Granular Granular Techno", "Proto Warehouse Warehouse Techno".
-   Collapse the adjacent duplicate AT PICK TIME so every surface — card,
-   prompt, share link — carries the same clean name and the pool on disk
-   stays untouched. Hyphenated words ("Tribal-Tribal X") are covered too. */
-export function canonStyleName(name) {
-  return String(name || "").trim()
-    .replace(/\b(\w+)((\s+|-\s*)\1\b)+/gi, "$1")
-    .replace(/\s{2,}/g, " ").trim();
-}
+/* canonStyleName() is defined by the pool assembly above (it also fixes
+   the K-spelled "Tekno" generator artifacts at the same time). */
 
 export function pickStyle(s) {
   if (s.techOnly) {

@@ -94,10 +94,14 @@ const TECH = [
 ];
 /* nouns: what the style IS */
 const NOUNS = {
-  core: ["Techno", "Rave Techno", "Hardgroove", "Tekno"],
+  /* NB: the bare K-spelling "Tekno" is the name of a specific free-party
+     scene and must never be used as a generic techno noun ("Amsterdam
+     Tekno"); only the explicit "Free-Party Tekno" form carries it. Any
+     generator output is also normalised at runtime by canonStyleName(). */
+  core: ["Techno", "Rave Techno", "Hardgroove"],
   sub: ["Techno", "Hard Techno", "Dub Techno", "Acid Techno", "Hardgroove", "Schranz",
         "Rave Techno", "Psy-Techno", "Trance-Techno", "Electro-Techno", "Breakbeat Techno",
-        "Jungle Techno", "Hi-Tech", "Tekno", "Free-Party Tekno", "Hardcore Techno",
+        "Jungle Techno", "Hi-Tech", "Free-Party Tekno", "Hardcore Techno",
         "Industrial Techno", "EBM Techno", "Detroit Techno", "Berlin Techno",
         "Bleep Techno", "Warehouse Techno"],
   rare: ["Techno", "Industrial Techno", "Schranz", "Bleep Techno", "Electro-Techno",

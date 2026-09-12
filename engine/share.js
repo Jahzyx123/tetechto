@@ -3,6 +3,7 @@
    base64 encoding, so states round-trip losslessly. Works in both the
    browser and Node (tests). */
 import { defaultState, defaultLocks, defaultHidden } from "./state.js";
+import { canonStyleName } from "./genre.js";
 
 function toB64(str) {
   if (typeof btoa === "function") return btoa(unescape(encodeURIComponent(str)));
@@ -67,6 +68,10 @@ export function decodeState(str) {
     if (m.hd) { s.hidden = defaultHidden(); Object.assign(s.hidden, m.hd); }
     if (m.ltx && typeof m.ltx === "object") s.lyrics = Object.assign({ text: "", seed: 0, nonces: {}, edited: false }, m.ltx);
     if (m.vp) s.vocalProfile = String(m.vp);
+    /* migrate links made before style-name canonicalization: a generic
+       "X Tekno" generator name in an old link renders as "X Techno" now */
+    if (s.primaryStyle) s.primaryStyle = canonStyleName(s.primaryStyle);
+    if (s.secondaryStyle) s.secondaryStyle = canonStyleName(s.secondaryStyle);
     return s;
   } catch (e) { return null; }
 }

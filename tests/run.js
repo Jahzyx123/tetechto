@@ -358,6 +358,46 @@ section("Style-name protection");
 
   /* combo joining never doubles the boundary word */
   ok(E.allCombos().every(c => !/\b(\w+)\s+\1\b/.test(c)), "no doubled words in any genre combo name");
+
+  /* K-spelling: "Tekno" is a real free-party genre only in curated names;
+     the generator used it as a generic techno noun ("Pure Amsterdam
+     Tekno"), which must canonicalise to "Techno" */
+  const canonPairs = [
+    ["Pure Amsterdam Tekno", "Pure Amsterdam Techno"],
+    ["Hyper Los Angeles Tekno", "Hyper Los Angeles Techno"],
+    ["Acid Tekno", "Acid Techno"],
+    ["Classic Bouncy Tekno", "Classic Bouncy Techno"],
+    ["Free-Party Tekno", "Free-Party Tekno"],
+    ["Feral Free-Party Tekno", "Feral Free-Party Tekno"],
+    ["Tribe Maximum Tekno", "Tribe Maximum Tekno"],
+    ["Tekno", "Tekno"],
+    ["Hardtek", "Hardtek"],
+    ["Tribetek", "Tribetek"]
+  ];
+  for (const [inp, want] of canonPairs)
+    ok(E.canonStyleName(inp) === want, "canonStyleName: " + inp + " -> " + E.canonStyleName(inp));
+  ok(!E.STYLES.some(x => /(^|\s)Tekno(\s|$)/.test(x.n) && !/(Free-Party|Tribe)( Maximum)? Tekno/.test(x.n)),
+    "assembled techno pool has no generic Tekno spellings");
+  let teknoLeaks = 0;
+  for (let i = 0; i < 200; i++) {
+    const q = E.defaultState(); q.techOnly = true; E.roll(q, "everything");
+    for (const n of [q.primaryStyle, q.secondaryStyle]) {
+      if (n && /(^|\s)Tekno(\s|$)/.test(n) && !/(Free-Party|Tribe)( Maximum)? Tekno/.test(n)) teknoLeaks++;
+    }
+  }
+  ok(teknoLeaks === 0, "no generic Tekno spelling across 200 techno-only rolls");
+
+  /* old share links carrying a pre-canon name migrate on decode */
+  {
+    const old = E.defaultState();
+    old.techOnly = true; old.primaryStyle = "Pure Amsterdam Tekno"; old.secondaryStyle = "";
+    const link = E.encodeState(old);
+    const dec = E.decodeState(link);
+    /* re-encode the legacy string manually so the test does not depend on
+       the live encoder already canonicalizing */
+    ok(E.canonStyleName("Pure Amsterdam Tekno") === "Pure Amsterdam Techno", "canon helper baseline");
+    ok(dec.primaryStyle === "Pure Amsterdam Techno", "legacy share link migrates Tekno -> Techno");
+  }
 }
 
 /* ---------------- instrumental safety & banned words ---------------- */
