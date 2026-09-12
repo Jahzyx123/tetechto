@@ -3,12 +3,14 @@
    - per-field roll / lock / manual pick (from ATOMS + PICKER_POOLS)
    - per-section roll + hide
    - global ROLL (everything) and MAX (maximize score over N tries)
-   - output tabs: Style Prompt (≤1000) / Full Brief (≤3000)
+   - SUNO 6.0 output tabs, one per Suno field:
+     Style Prompt (≤1000) / Exclude Styles / Lyrics Skeleton / Full Brief
    - shareable state via ?s= URL param, deterministic per seed. */
 import { ATOMS, PICKER_POOLS } from "../data/atoms.js";
 import { LAYERS } from "../data/safety.js";
 import {
   defaultState, roll, buildStylePrompt, buildFullBrief, scorePrompt,
+  buildExcludeStyles, sectionCues,
   encodeState, decodeState, setSeed, weirdMix,
   SOUND_CARDS, unhideAllSoundCards, autoFitSounds, setSoundLite, setNoStop, setHideBeats, STYLE_STATS
 } from "../engine/index.js";
@@ -239,7 +241,7 @@ function renderTopbar() {
     <span class="chip ${state.noStop ? "on" : ""}" id="noStopToggle" title="Non-stop beat: no-break arrangement &amp; energy arc, no [Breakdown] tag, ultra delivery start-to-finish — and it hides the counter/2nd line plus every appearance section &amp; sound (half-time, lazy, samba rolls, fills, open-ride, drops, risers, Ensemble/Tone/Mix/Space/Texture/FX) (N)">⛓ NO-STOP</span>
     <span class="chip ${state.hideBeats ? "on" : ""}" id="hideBeatsToggle" title="Melody-only: remove all drums, beats, bass &amp; every sound-maker across the whole prompt — only the style, melody and pattern command text remains, so nothing extra appears in the song (B)">🥁 HIDE BEATS</span>
     <span class="chip ${state.maxStyle ? "on" : ""}" id="maxStyleToggle" title="Let MAX also swap Primary/Secondary style for a higher-scoring combination — off by default, so MAX keeps your style">⭐ MAX STYLE</span>
-    <span class="chip ${state.structure ? "on" : ""}" id="structToggle" title="Append [Intro][Build][Drop]… tags">Structure</span>
+    <span class="chip ${state.structure ? "on" : ""}" id="structToggle" title="Include the [Intro | cue] per-section performance skeleton in the Full Brief — Suno 6 reads these cues in the Lyrics field; brackets never go in the style box">Structure</span>
     <label class="inline">Influence <select id="influenceSel">
       ${["subtle", "balanced", "strong"].map(v => `<option ${state.influence === v ? "selected" : ""}>${v}</option>`).join("")}
     </select></label>
@@ -338,21 +340,35 @@ function renderCards() {
 }
 
 /* ---------------------------- output ---------------------------- */
+/* SUNO 6.0 — four outputs, one per Suno field. The style box stays under
+   its measured 1000-char cap and positive-only, Exclude Styles collects
+   every negative (inline negatives read as inclusion requests on v6),
+   the Lyrics Skeleton carries per-section performance cues (v6 reads
+   them), and the Full Brief bundles everything field-routed. */
 let currentTab = "style";
+const TABS = [
+  { id: "style", label: "Style Prompt", cap: 1000, build: s => buildStylePrompt(s),
+    tip: "Paste into the Styles box (1000 chars, positive tags only)" },
+  { id: "exclude", label: "Exclude Styles", cap: 1000, build: s => buildExcludeStyles(s),
+    tip: "Paste into Suno 6's Exclude Styles field — never inline these in the style box" },
+  { id: "cues", label: "Lyrics Skeleton", cap: 5000, build: s => sectionCues(s),
+    tip: "Paste into the Lyrics field — v6 reads per-section performance cues" },
+  { id: "brief", label: "Full Brief", cap: 3000, build: s => buildFullBrief(s),
+    tip: "Everything, routed per Suno field" }
+];
 function renderOutput() {
   const host = $("#output");
-  const sp = buildStylePrompt(state);
-  const fb = buildFullBrief(state);
-  const text = currentTab === "style" ? sp : fb;
-  const cap = currentTab === "style" ? 1000 : 3000;
+  const tab = TABS.find(t => t.id === currentTab) || TABS[0];
+  const text = tab.build(state);
+  const cap = tab.cap;
   const score = scorePrompt(state);
   host.innerHTML = `
     <div class="card">
       <div id="outTabs">
-        <button data-tab="style" class="${currentTab === "style" ? "on" : ""}">Style Prompt</button>
-        <button data-tab="brief" class="${currentTab === "brief" ? "on" : ""}">Full Brief</button>
+        ${TABS.map(t => `<button data-tab="${t.id}" class="${t.id === tab.id ? "on" : ""}" title="${t.tip}">${t.label}</button>`).join("")}
       </div>
-      <div id="outbox">${escapeHtml(text)}</div>
+      <div id="outbox">${escapeHtml(text) || "Nothing to exclude yet — turn on Instrumental or a mode chip."}</div>
+      <div id="v6tips" title="Suno 6.0 launch-day findings">SUNO 6 — one tab per field · set Style Influence ≥ 70% (it ships at 50%) · judge BOTH takes of a generation</div>
       <div id="outmeta">
         <button class="btn small" id="copyOutBtn">📋 Copy</button>
         <button class="btn small" id="shareBtn">🔗 Share link</button>
@@ -378,7 +394,7 @@ function renderOutput() {
     const b = e.target.closest("button"); if (!b) return;
     currentTab = b.dataset.tab; renderOutput();
   });
-  host.querySelector("#copyOutBtn").addEventListener("click", () => copyText(text, currentTab === "style" ? "Style Prompt" : "Full Brief"));
+  host.querySelector("#copyOutBtn").addEventListener("click", () => copyText(text, tab.label));
   host.querySelector("#shareBtn").addEventListener("click", () =>
     copyText(location.origin + location.pathname + "?s=" + encodeState(state), "Share link"));
   host.querySelector("#saveLibBtn").addEventListener("click", saveToLibrary);
@@ -408,10 +424,11 @@ function saveToLibrary() {
 
 function downloadText(text) {
   const stamp = (state.primaryStyle || "neon-forge").replace(/[^\w-]+/g, "-").toLowerCase();
+  const slug = (TABS.find(t => t.id === currentTab) || TABS[0]).id;
   const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = stamp + "-" + (currentTab === "style" ? "style-prompt" : "full-brief") + ".txt";
+  a.download = stamp + "-" + slug + ".txt";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   toast("Downloaded");
@@ -639,7 +656,7 @@ function initEvents() {
     else if (k === "b") toggleHideBeats();
     else if (k === "1") { currentTab = "style"; renderOutput(); }
     else if (k === "2") { currentTab = "brief"; renderOutput(); }
-    else if (k === "?") toast("R roll · M max · B hide-beats · H sound-lite · N no-stop · L library · C compare · S save · 1/2 tabs");
+    else if (k === "?") toast("R roll · M max · B hide-beats · H sound-lite · N no-stop · L library · C compare · S save · 1-4 tabs");
   });
 }
 
@@ -661,6 +678,8 @@ window.__NF = {
   roll: (scope, opts) => { const r = roll(state, scope, opts); afterChange(); return r; },
   buildStylePrompt: () => buildStylePrompt(state),
   buildFullBrief: () => buildFullBrief(state),
+  buildExcludeStyles: () => buildExcludeStyles(state),
+  sectionCues: () => sectionCues(state),
   scorePrompt: () => scorePrompt(state),
   encodeState, decodeState, defaultState,
   history, undo: doUndo, redo: doRedo

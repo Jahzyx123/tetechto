@@ -326,17 +326,89 @@ section("Instrumental safety & banned max-energy words");
   s.kick = "quiet weak kick";             // banned words
   s.leadVoice = "soaring vocal chop lead"; // vocal ref while instrumental
   const sp = E.buildStylePrompt(s);
-  const noPolicy = sp.replace(/no vocals, no lyrics, no screaming, no chants, no choir, no spoken words/, "");
   for (const w of ["minimal", "sparse", "restrained", "weak", "quiet", "gentle"]) {
-    ok(!new RegExp("\\b" + w + "\\b", "i").test(noPolicy), "banned word never reaches output: " + w);
+    ok(!new RegExp("\\b" + w + "\\b", "i").test(sp), "banned word never reaches output: " + w);
   }
   ok(!/vocal chop/i.test(sp), "vocal reference stripped in instrumental mode");
-  ok(/no vocals[,/]\s*(no )?lyrics/.test(sp), "instrumental policy line appended (compact or verbose form)");
+  /* SUNO 6: the style box ends in the POSITIVE tail only; the negatives
+     travel in the dedicated Exclude Styles field */
+  ok(/instrumental techno$/.test(sp), "instrumental positive tail ends the style box (no inline negatives)");
+  ok(!/no vocals/.test(sp), "no negative policy inside the style box (v6 reads it as a request)");
+  const ex = E.buildExcludeStyles(s);
+  ok(/vocals/.test(ex) && /lyrics/.test(ex) && /choir/.test(ex),
+    "instrumental negatives live in the Exclude Styles field");
   const fb = E.buildFullBrief(s);
-  ok(!/\bminimal\b|\bsparse\b/i.test(fb.replace(/VOCAL POLICY[\s\S]*/, "")), "brief clauses with banned words dropped");
+  ok(!/\bminimal\b|\bsparse\b/i.test(fb.replace(/EXCLUDE STYLES:[\s\S]*/, "")), "brief clauses with banned words dropped");
   s.instrumental = false; s.vocalMode = false;
-  ok(!/no vocals/.test(E.buildStylePrompt(s)), "safety line only added in instrumental mode");
+  ok(!/instrumental/.test(E.buildStylePrompt(s)), "instrumental tail only added in instrumental mode");
 }
+
+/* ---------------- SUNO 6.0 field routing ---------------- */
+section("SUNO 6.0 field routing (positive style box / exclude / cues)");
+{
+  let overSp = 0, overFb = 0, overEx = 0, overCues = 0;
+  let negInBox = 0, tagInBox = 0, tailOk = 0, exOk = 0, cuesOk = 0, briefOk = 0;
+  for (let i = 0; i < 80; i++) {
+    const s = E.defaultState();
+    s.techOnly = i % 2 === 0;
+    s.instrumental = i % 3 !== 0;
+    s.vocalMode = !s.instrumental && i % 4 === 3;
+    s.noStop = i % 5 === 0;
+    s.hideBeats = i % 7 === 3;
+    s.noHandPerc = i % 11 === 4;
+    if (s.noStop) E.setNoStop(s, true);
+    if (s.hideBeats) E.setHideBeats(s, true);
+    E.roll(s, "everything");
+    const sp = E.buildStylePrompt(s);
+    const ex = E.buildExcludeStyles(s);
+    const cues = E.sectionCues(s);
+    const fb = E.buildFullBrief(s);
+    if (sp.length > 1000) overSp++;
+    if (fb.length > 3000) overFb++;
+    if (ex.length > 1000) overEx++;
+    if (cues.length > 5000) overCues++;
+    if (/\bno\s+[a-z-]+/i.test(sp)) negInBox++;          // inline negatives
+    if (/\[[^\]]*\]/.test(sp)) tagInBox++;               // bracket tags
+    const tail = sp.slice(sp.lastIndexOf("instrumental"));
+    if (s.instrumental ? /^instrumental [a-z0-9 '#&-]+(\. instrumenta[a-z ]*)?$/i.test(tail)
+      : s.vocalMode ? /vocal: /.test(sp) : true) tailOk++;
+    if ((s.instrumental ? /vocals/.test(ex) : true)
+      && (s.noStop ? /breakdown/.test(ex) : !/breakdown/.test(ex))
+      && (s.hideBeats ? /drums/.test(ex) : true)) exOk++;
+    if (cues.startsWith("[") && /^\[(Intro|Build|Rise|Drop|Climax|Breakdown|Release|Finale|Outro)( \| [^\]]*)?\]$/m.test(cues)) cuesOk++;
+    if (/EXCLUDE STYLES:/.test(fb) === !!ex && /LYRICS SKELETON:/.test(fb) === !!cues) briefOk++;
+  }
+  ok(overSp === 0 && overFb === 0 && overEx === 0 && overCues === 0,
+    "all four outputs inside their caps across 80 mode-varied rolls (sp/fb/ex/cues over: " + overSp + "/" + overFb + "/" + overEx + "/" + overCues + ")");
+  ok(negInBox === 0, "style box is positive-only — zero inline negatives (v6 Exclude Styles routing)");
+  ok(tagInBox === 0, "zero bracket tags in the style box (structure lives in the Lyrics skeleton)");
+  ok(tailOk === 80, "positive tail correct in every mode (instrumental tag / vocal direction / none)");
+  ok(exOk === 80, "Exclude Styles list matches the active modes");
+  ok(cuesOk === 80, "Lyrics skeleton emits valid [Section | cue] lines");
+  ok(briefOk === 80, "Full Brief field-routes EXCLUDE STYLES + LYRICS SKELETON blocks");
+
+  /* cues follow the energy arc: no-stop has no Breakdown, standard does */
+  const sN = freshTechno(); E.setNoStop(sN, true); E.roll(sN, "everything");
+  ok(!/Breakdown/.test(E.sectionCues(sN)), "no-stop skeleton has no Breakdown section");
+  const sS = freshTechno(); E.roll(sS, "everything");
+  ok(/Breakdown/.test(E.sectionCues(sS)), "standard skeleton keeps the Breakdown section");
+
+  /* cues are deterministic and idempotent under the output rewriter */
+  let cuesDirty = 0;
+  for (let i = 0; i < 30; i++) {
+    const s = E.defaultState(); s.techOnly = i % 2 === 0;
+    E.roll(s, "everything");
+    const c = E.sectionCues(s);
+    if (E.sectionCues(s) !== c || P.stripVocalCue(c) !== c) cuesDirty++;
+  }
+  ok(cuesDirty === 0, "section cues deterministic + idempotent under stripVocalCue");
+
+  /* v6 scoring criteria exist */
+  const sc = E.scorePrompt(freshTechno());
+  ok(sc.items.some(i => i.label === "Exclude hygiene"), "score includes Exclude hygiene (v6)");
+  ok(sc.items.some(i => i.label === "Mood coherence"), "score includes Mood coherence (v6)");
+}
+
 
 /* ---------------- vocal-cue neutralization (output-time) ---------------- */
 section("Vocal-cue neutralization (output-time)");
@@ -359,11 +431,13 @@ section("Vocal-cue neutralization (output-time)");
     E.roll(s, "everything", { mode: s.maxStyle ? "max" : undefined, tries: s.maxStyle ? 24 : 8 });
     const sp = E.buildStylePrompt(s);
     const fb = E.buildFullBrief(s);
-    /* park the negated policy (style prompt tail / brief policy section)
-       and the vocal-mode direction tail before scanning */
-    const spClean = s.vocalMode ? sp.slice(0, sp.search(/vocal:/)) :
-      s.instrumental ? sp.slice(0, sp.search(/no vocals/)) : sp;
-    const fbClean = fb.replace(/VOCAL POLICY[\s\S]*/, "");
+    /* park the intended-negative machine blocks (SUNO 6 field routing)
+       and the vocal-mode direction tail before scanning. STYLE BOX TAIL
+       and EXCLUDE STYLES are single lines after their header; the prose
+       and the LYRICS SKELETON stay under scan. */
+    const machine = /(?:STYLE BOX TAIL|EXCLUDE STYLES):\n[^\n]*\n?/g;
+    const spClean = s.vocalMode ? sp.slice(0, sp.search(/vocal:/)) : sp;
+    const fbClean = fb.replace(machine, "").replace(/^LYRICS SKELETON:\n/m, "");
     for (const [name, x] of [["Style Prompt", spClean], ["Full Brief", fbClean]]) {
       checked++;
       let y = x;
@@ -718,7 +792,7 @@ section("Style Prompt density (sound packing)");
   const s2 = E.defaultState(); E.roll(s2, "everything");
   const sp2 = E.buildStylePrompt(s2);
   ok(!/\b(minimal|sparse|restrained|weak|quiet|gentle)\b/i.test(sp2), "packed prompt stays banned-word free");
-  const noPolicy2 = sp2.replace(/instrumental [a-z-]+, no vocals.*$/i, "");
+  const noPolicy2 = sp2.replace(/instrumental [a-z0-9 '#&-]+$/i, "");
   ok(!E.hasVocalRef(noPolicy2), "packed prompt stays instrumental-safe");
   const clauses = sp2.split(/\.\s+/).map(c => c.trim()).filter(Boolean);
   ok(clauses.every(c => !/,\s*$/.test(c)), "no clause ends on a dangling comma");
@@ -830,8 +904,8 @@ section("No-stop beat");
   ok(!/\[Breakdown\]/.test(E.structTags(s)), "structure tags drop [Breakdown]");
   ok(/\[Intro\]/.test(E.structTags(s)) && /\[Outro\]/.test(E.structTags(s)), "arc tags still frame the track");
   const sp = E.buildStylePrompt(s);
-  ok(/Non-stop: continuous beat, no breaks/i.test(sp) && sp.length <= 1000,
-    "style prompt carries the no-breaks policy (≤1000, " + sp.length + " chars)");
+  ok(/Non-stop: continuous beat, seamless section changes, ultra delivery/i.test(sp) && sp.length <= 1000,
+    "style prompt carries the positive non-stop policy (≤1000, " + sp.length + " chars)");
   const fb = E.buildFullBrief(s);
   ok(/NON-STOP:/.test(fb) && fb.length <= 3000, "full brief carries the no-breaks policy (≤3000)");
   // no-stop survives re-rolls
@@ -854,7 +928,7 @@ section("No-stop beat");
     }
   }
   ok(dirty === 0, "no-stop rolls never emit appearance cues (half-time/lazy/samba/ocean/broken/fills/rides/…)");
-  const spPure = E.buildStylePrompt(s).replace(/Non-stop:.*?silent gaps[.,]?/i, "");
+  const spPure = E.buildStylePrompt(s).replace(/Non-stop:.*?ultra delivery[.,]?/i, "");
   ok(!/\b(gaps?|silence|silent|vacuum|blackout|pause)\b/i.test(spPure), "style prompt has no gap/silence vocabulary");
   // counter rolls stay blank while no-stop is on, and return when it's off
   E.roll(s, "counter-melody"); E.roll(s, "voice-concept");
@@ -974,7 +1048,11 @@ section("No hand-percussion toggle");
     const st = E.defaultState(); st.techOnly = i % 2 === 0; st.noHandPerc = true;
     E.roll(st, "everything");
     const sp = E.buildStylePrompt(st), fb = E.buildFullBrief(st);
-    if (RE.test(sp) || RE.test(fb)) leaks++;
+    /* SUNO 6: the Exclude Styles block intentionally NAMES the hand-perc
+       family (they are exclusions); scan the style prompt and the brief's
+       prose + lyrics skeleton only. */
+    const fbScan = fb.replace(/(?:STYLE BOX TAIL|EXCLUDE STYLES):\n[^\n]*\n?/g, "");
+    if (RE.test(sp) || RE.test(fbScan)) leaks++;
     if (sp.length > 1000 || fb.length > 3000) over++;
     if (st.clapLayer === "") blankClap++;
     sounds += E.scorePrompt(st).soundCount;
@@ -1212,20 +1290,22 @@ section("No \"voicing\" vocal cue anywhere in the output");
     const sp = E.buildStylePrompt(st), fb = E.buildFullBrief(st);
     if (/\bvoicings?\b/i.test(sp)) spVoicing++;
     if (/\bvoicings?\b/i.test(fb)) fbVoicing++;
-    /* The only allowed vocal reference is the explicit policy line
-       ("no vocals/lyrics/..."); strip it before counting so a real
-       leak is detected. */
-    const spBare = sp.replace(/instrumental [^,]+(?:,| and) no vocals(?:[^.]*)?\.?$/i, "");
-    const fbBare = fb.replace(/VOCAL POLICY:[\s\S]*$/i, "");
+    /* SUNO 6: the only allowed vocal references are the positive tail
+       ("instrumental <genre>") and the Exclude Styles block (intended
+       negatives); strip both before counting so a real leak is caught. */
+    const spBare = sp.replace(/\.? instrumental [a-z0-9 '#&-]+\.?$/i, "");
+    const fbBare = fb.replace(/(?:STYLE BOX TAIL|EXCLUDE STYLES):\n[^\n]*\n?/g, "")
+      .replace(/^LYRICS SKELETON:\n/m, "");
     if (/\b(vocals?|singing|singer|singable|lyrics|chants?|spoken|barbershop)\b/i.test(spBare)) spVocal++;
     if (/\b(vocals?|singing|singer|singable|lyrics|chants?|spoken|barbershop)\b/i.test(fbBare)) fbVocal++;
   }
   ok(spVoicing === 0, `no "voicing" in any style prompt across 200 rolls (${spVoicing})`);
   ok(fbVoicing === 0, `no "voicing" in any full brief across 200 rolls (${fbVoicing})`);
   /* Instrumental prompts must contain no vocal reference at all; the
-     vocal-policy line ("no vocals") is the only exception. */
-  ok(spVocal === 0, `no vocal reference outside the policy line (sp ${spVocal})`);
-  ok(fbVocal === 0, `no vocal reference outside the policy line (fb ${fbVocal})`);
+  /* Instrumental prompts must contain no vocal reference at all; the
+     positive tail and the Exclude Styles list are the only exceptions. */
+  ok(spVocal === 0, `no vocal reference outside the tail (sp ${spVocal})`);
+  ok(fbVocal === 0, `no vocal reference outside the field blocks (fb ${fbVocal})`);
 }
 
 section("Phrase tightening and label-noun trimming");

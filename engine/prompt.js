@@ -1,13 +1,22 @@
 /* engine/prompt.js — prompt assembly, sanitising and budgets.
-   Ported 1:1 from the legacy engine:
+   Ported 1:1 from the legacy engine, then reformed for SUNO 6.0
+   (launched 2026-09-09; field limits verified unchanged — Style 1000,
+   Lyrics 5000, dedicated Exclude Styles field):
    - assemble(): priority/required/compact-variant block system. Compact
      every block first, then drop optional blocks lowest-priority-first,
      then hard-clamp at a clause boundary as a last resort — never
      mid-phrase, never mid-word.
    - sanitize(): drops whole clauses containing banned low-energy words
      (BANNED_MINIMAL) or vocal references when instrumental-only is on.
-   - buildStylePrompt(): hard cap 1000 chars (Suno 5.5 style box).
-   - buildFullBrief(): hard cap 3000 chars.
+   - buildStylePrompt(): hard cap 1000 chars, POSITIVE statements only,
+     genre/mood front-loaded (v6 weighs early tags most, reads inline
+     negatives as inclusion requests and ignores bracket tags — so
+     negatives moved to buildExcludeStyles() and structure moved to
+     sectionCues(); the ~100 characters they cost now buy more sounds).
+   - buildExcludeStyles(): content for Suno 6's dedicated negative field.
+   - sectionCues(): per-section performance direction for the Lyrics
+     field — v6 demonstrably reads "[Section | cue]" cues.
+   - buildFullBrief(): hard cap 3000 chars, every block field-routed.
    All builders take the state object explicitly. */
 import { SAFETY_LINE, BANNED_MINIMAL, VOCAL_WORDS, LAYERS, VOCAL_DIRECTIONS } from "../data/safety.js";
 import { hasHandPerc, NO_STOP_BAD_RE } from "./state.js";
@@ -182,6 +191,9 @@ export function stripVocalCue(text) {
   const park = (m) => { keep.push(m); return "\u0001" + (keep.length - 1) + "\u0001"; };
   const unPark = (x) => x.replace(/\u0001(\d+)\u0001/g, (m, i) => keep[+i] !== undefined ? keep[+i] : m);
   t = t.replace(/\bvocal:\s*[^.!?\n]*/gi, park);
+  /* the Exclude Styles field is where vocal words are SUPPOSED to appear
+     (they are exclusions); protect it like the policy lines */
+  t = t.replace(/\bexclude\s+styles:\s*[^.!?\n]*/gi, park);
   t = t.replace(/\bno\s+(?:vocals?|lyrics?|screaming|screams?|chants?|choirs?|spoken|shouts?|singing|songs?|verses?|choruses?)[^.!?\n]*/gi, park);
 
   /* "chord voicings" -> "chord spreads" / "chord voicing" -> "chord spread"
@@ -374,6 +386,27 @@ export function dropLabelNoun(label, v) {
   if (!re) return v;
   const out = String(v).replace(re, "").replace(/\s+/g, " ").trim();
   return out.length >= 3 ? out : v;
+}
+
+/* genreSafeText() protects the RAW style names from its rewrites via
+   placeholder swap — but by the time the final pass runs, stripVocalCue
+   has already rewritten vocal-cue words INSIDE those names ("Festival
+   Gospel" -> "Festival Church"), the protection no longer matches, and
+   the "festival" rule eats the first word. This wrapper protects the
+   derived forms too, so a style name survives every pass in the form the
+   pipeline actually emits. */
+export function genreSafeBody(s, body) {
+  if (s.techOnly) return genreSafeText(s, body, true);
+  const forms = [s.primaryStyle, s.secondaryStyle].filter(Boolean)
+    .flatMap(x => [x, stripVocalCue(x)]);
+  const esc = x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const ph = [];
+  let t = String(body || "");
+  for (const f of new Set(forms).values()) {
+    t = t.replace(new RegExp(esc(f), "g"), m => { ph.push(f); return "\u0001" + (ph.length - 1) + "\u0001"; });
+  }
+  t = genreSafeText(s, t, true);
+  return ph.length ? t.replace(/\u0001(\d+)\u0001/g, (m, i) => ph[+i] !== undefined ? ph[+i] : m) : t;
 }
 
 export function densify(s, body, budget) {
@@ -697,26 +730,103 @@ export function layerLine(s) {
   if (!e.length) return "";
   return "Details: " + e.map(l => l.phrase).join(", ");
 }
-/* Instrumental-only vocal sanitizer: when instrumental is on the prompt
-   always ends in an explicit no-vocals policy line. */
-/* Compact form of the no-vocals policy. Semantically identical to
-   SAFETY_LINE but ~40 characters cheaper, which densify() converts into
-   roughly three more rolled sounds. The verbose SAFETY_LINE is still used
-   in the Full Brief, where 3000 characters is never the binding limit. */
-export function vocalLineCompact(s) {
-  const g = (!s.techOnly && s.primaryGenre && !/techno/i.test(s.primaryGenre))
-    ? s.primaryGenre.toLowerCase() : "techno";
-  return "instrumental " + g + ", no vocals/lyrics/chants/choir/spoken words";
-}
-export function vocalLine(s) {
+/* SUNO 6 TAIL — the style box ends in a POSITIVE statement only.
+   "instrumental <genre>" is a recognized positive tag that steers v6 to a
+   wordless render; the old negative tail ("no vocals, no lyrics, ...") is
+   GONE from the style box — v6 reads inline negatives as inclusion
+   instructions and they belong in the Exclude Styles field
+   (buildExcludeStyles). ~60 freed characters become extra sounds. */
+export function styleTail(s) {
   if (s.instrumental) {
-    if (s.techOnly) return SAFETY_LINE;
-    const g = (s.primaryGenre && !/techno/i.test(s.primaryGenre)) ? s.primaryGenre : "instrumental";
-    return "instrumental " + g.toLowerCase() + ", no vocals, no lyrics, no screaming, no chants, no choir, no spoken words";
+    const g = (!s.techOnly && s.primaryGenre && !/techno/i.test(s.primaryGenre))
+      ? s.primaryGenre.toLowerCase() : "techno";
+    /* pre-clean: some genre names carry vocal-cue words ("Operatic Pop",
+       "Gospel House") or the concert-recording word ("Live Electronic");
+       emit the rewritten form so the tail is identical in the style box,
+       the brief and any later rewrite pass. */
+    return stripLive(stripVocalCue("instrumental " + g));
   }
   if (s.vocalMode) return "vocal: " + pick(VOCAL_DIRECTIONS);
   return "";
 }
+
+/* SUNO 6 EXCLUDE STYLES — the dedicated negative field. Suno renders this
+   list back with minus prefixes and keeps every item OUT of the track;
+   typed into the style box the same words would invite them IN.
+   Built mode-aware:
+   - instrumental: the whole vocal family,
+   - NO-STOP: every sectioning device (breakdowns, gaps, fade-outs),
+   - HIDE-BEATS: every beat/sound-maker (melody-only prompt),
+   - NO HAND-PERC: the acoustic-percussion family the toggle removes. */
+export function buildExcludeStyles(s) {
+  const items = [];
+  if (s.instrumental) items.push(
+    "male vocals", "female vocals", "lyrics", "singing", "choir", "chants",
+    "spoken word", "rap", "a cappella", "humming", "whistling", "vocal chops", "ad-libs");
+  if (s.noStop) items.push(
+    "breakdown", "half-time section", "beat drop-out", "drum stop",
+    "silent gap", "quiet bridge", "fade-out ending");
+  if (s.hideBeats) items.push(
+    "drums", "percussion", "bassline", "beat drops", "extra instruments", "sound effects");
+  if (s.noHandPerc) items.push(
+    "tribal drums", "hand percussion", "congas", "bongos", "djembes", "tablas",
+    "shakers", "tambourine", "cowbell", "claps", "finger snaps", "stomps",
+    "woodblocks", "marimba", "steel drum");
+  const seen = new Set();
+  return items.filter(x => !seen.has(x) && seen.add(x)).join(", ");
+}
+
+/* SUNO 6 SECTION CUES — per-section performance direction for the LYRICS
+   field. v6 reads cues inside "[Section | direction]" and uses them (a
+   launch-day track described a whispered French bridge that existed ONLY
+   as a section cue). The cue for each section is derived from the rolled
+   energy arc plus the state's own build/drop/riser/texture atoms, so the
+   skeleton always matches the rest of the brief. Deterministic per state,
+   idempotent under stripVocalCue, and safe in every mode: NO-STOP arcs
+   contain no Breakdown, HIDE-BEATS cues carry no drum words, and cue
+   atoms are cleaned exactly like the prose path (no "live", no banned
+   low-energy words, genre-safe wording in no-techno mode). Built for the
+   Lyrics field (5000-char cap), never for the style box — brackets there
+   are a documented anti-pattern. */
+export function sectionCues(s) {
+  const arc = energyArc(s);
+  const fit = v => {
+    if (!v) return "";
+    let w = stripLive(v);
+    w = stripVocalCue(w);
+    if (!s.techOnly) w = genreSafeText(s, w, true);
+    w = tightenPhrase(w);
+    return isDirty(s, w.toLowerCase()) ? "" : w.trim();
+  };
+  const atm = fit(s.atmosphereType), gro = fit(s.groove);
+  const fx = [];
+  const add = v => { const w = fit(v); if (w && !fx.includes(w)) fx.push(w); };
+  add(s.buildType); add(s.riserType); add(s.transitionType);
+  add(s.dropType); add(s.energyCurve); add(s.sectionDensity);
+  const buildCue = fx.slice(0, 2).join(", ");
+  const dropCue = [fit(s.dropType), gro].filter(Boolean).slice(0, 2).join(", ");
+  return arc.map(x => {
+    let cue = "";
+    if (/^Intro$/i.test(x.name)) cue = [atm, gro].filter(Boolean).slice(0, 2).join(", ") + ", groove sets in, melody waits";
+    else if (/^(Build|Rise)$/i.test(x.name)) cue = ["drums tighten, energy rises to " + x.energy + "%", buildCue].filter(Boolean).join(", ");
+    else if (/^(Drop|Climax)$/i.test(x.name)) cue = ["full groove lands, main melody theme, " + x.energy + "% energy", dropCue].filter(Boolean).join(", ");
+    else if (/^(Breakdown|Release)$/i.test(x.name)) cue = ["energy dips to " + x.energy + "%, filters open, groove thins, melody keeps leading", atm].filter(Boolean).slice(0, 2).join(", ");
+    else if (/^Outro$/i.test(x.name)) cue = s.hideBeats
+      ? "melody pattern winds down, ends clean"
+      : "groove keeps rolling, filter winds down, ends on the final pattern";
+    return "[" + x.name + (cue ? " | " + cue : "") + "]";
+  }).join("\n");
+}
+
+/* Positive vocal statement for the Full Brief's policy section — the
+   negatives travel in EXCLUDE STYLES, not here. */
+export function vocalLine(s) {
+  return styleTail(s);
+}
+
+/* Legacy bare structure tags — kept for old share links and the no-stop
+   arc check. The style box no longer receives them (brackets belong to
+   the Lyrics field); the v6 skeleton is sectionCues(). */
 export function structTags(s) {
   const raw = s.noStop
     ? ["Intro", "Build", "Drop", "Drop", "Outro"]
@@ -725,23 +835,24 @@ export function structTags(s) {
   return " " + names.map(n => "[" + n + "]").join(" ");
 }
 
-/* Explicit no-stop policy. Suno hears "[Breakdown]" / "breakdown" as
-   permission to pull the beat out, so the builder also spells out that
-   the groove never stops — and that delivery is full throttle the whole
-   way — the roll alone is not enough. */
+/* Explicit no-stop policy. SUNO 6: the style box keeps the POSITIVE
+   command only (continuous beat, seamless changes, ultra delivery); the
+   old negative list ("no breaks, no bridges, no silent gaps") moved to
+   the Exclude Styles field (buildExcludeStyles), because v6 reads inline
+   negatives as inclusion requests. */
 export function noStopLine(s, compact) {
   if (!s.noStop) return "";
-  if (compact) return "Non-stop: continuous beat, no breaks/bridges/silent gaps, ultra delivery";
-  return "Non-stop: continuous beat from start to finish, no breaks, no bridges, no breakdowns, no silent gaps, seamless section changes, ultra delivery — relentless energy from the first bar to the last";
+  if (compact) return "Non-stop: continuous beat, seamless section changes, ultra delivery";
+  return "Non-stop: continuous beat from start to finish, seamless section changes, ultra delivery — relentless energy from the first bar to the last";
 }
 
-/* Explicit melody-only policy. HIDE-BEATS removes every beat/sound atom,
-   and this line tells Suno the focus is the style's own instrument with a
-   melody pattern to follow — nothing extra should appear. */
+/* Explicit melody-only policy. SUNO 6: positive phrasing — the beat and
+   sound-maker exclusions travel in buildExcludeStyles(); the style box
+   only states what SHOULD carry the track. */
 export function hideBeatsLine(s, compact) {
   if (!s.hideBeats) return "";
-  if (compact) return "Melody-only: no drums/percussion/bass/extra sounds, melody pattern focus";
-  return "Melody pattern focus: no drums, no percussion, no bass, no added instruments or effects — only the style's own lead melody and its pattern";
+  if (compact) return "Melody-only: the style's own lead melody and its pattern carry the whole track";
+  return "Melody pattern focus: only the style's own lead melody and its pattern carry the whole track";
 }
 
 /* ---------------------------- PROMPT BUILDERS ---------------------------- */
@@ -823,14 +934,16 @@ export function buildStylePrompt(state) {
     if (tfl) blocks.push({ t: tfl, compact: textureFxLine(s, true), required: false, priority: 5.88 });
   }
   blocks.push({ t: layerLine(s), required: false, priority: 6 });
-  const TAGS = structTags(s);
-  const tagCost = s.structure ? TAGS.length + 1 : 0;
+  /* SUNO 6: no bracket structure tags and no negative policy in the style
+     box — structure lives in sectionCues() (Lyrics field) and negatives
+     live in buildExcludeStyles() (Exclude Styles field). Both used to
+     cost ~100 style-box characters; the freed budget now buys sounds. */
   const flavorCost = (!s.techOnly && (SLIM || true)) ? (genreWorld(s.primaryGenre) === "organic" ? " — acoustic instrumentation".length : genreWorld(s.primaryGenre) === "hybrid" ? " — acoustic and electronic hybrid instrumentation".length : 0) : 0;
   /* Budget note: we deliberately assemble against a REDUCED budget so the
      block system produces its compact, high-density forms, then densify()
      spends the reclaimed characters on rolled sounds that prose phrasing
      would have left out entirely. Net effect: many more sounds per 1000. */
-  const hardBudget = 1000 - (s.instrumental ? SAFETY_LINE.length + 2 : 20) - tagCost - flavorCost;
+  const hardBudget = 1000 - 20 - flavorCost;
   /* Never clamp below the required blocks' own compact length — the style,
      emotion, lead, bass and drum lines always survive intact. */
   const requiredLen = blocks.filter(b => b.required)
@@ -853,28 +966,40 @@ export function buildStylePrompt(state) {
   if (!s.noStop && !s.hideBeats && s.counterMelody && s.counterMelody.voice && !/Counter(-melody)?:/.test(body)) body += ". Counter: " + s.counterMelody.voice;
   if (!s.noStop && !s.hideBeats && s.voiceConcept && s.voiceConcept.voice && !/Second line:/.test(body)) body += ". 2nd: " + s.voiceConcept.voice;
   body = sanitize(s, body);
-  if (!s.techOnly) body = genreSafeText(s, body, true); // rephrase techno-isms to fit the genre (style names protected)
+  if (!s.techOnly) body = genreSafeBody(s, body); // rephrase techno-isms to fit the genre (raw + derived style names protected)
   /* "voicing" must be gone before densify compares / inserts: Suno reads
      it as a human voice ("hey"/"houuu"); the rewrite is idempotent, so the
      final normalizePrompt pass does not double-apply it. */
   body = stripVocalCue(body);
-  /* spend every leftover character on rolled sounds that didn't make the cut */
-  const v0 = s.instrumental ? vocalLineCompact(s) : vocalLine(s);
-  const reserve = (v0 ? v0.length + 2 : 1) + tagCost + 2;
+  /* spend every leftover character on rolled sounds that didn't make the
+     cut — the box is 1000 chars and every one of them is budgeted for the
+     tail + a separating period */
+  const v0 = styleTail(s);
+  const reserve = (v0 ? v0.length + 2 : 1) + 2;
   body = densify(s, body, 1000 - reserve);
   body = sanitize(s, body);
-  if (!s.techOnly) body = genreSafeText(s, body, true);
-  if (s.structure && !s.hidden.styleCard) body += TAGS;
-  const v = s.instrumental ? vocalLineCompact(s) : vocalLine(s);
-  let out = normalizePrompt(body + "." + (v ? " " + v : ""));
-  if (s.structure && out.length > 1000) {
-    out = normalizePrompt(out.replace(TAGS, ""));
-  }
-  if (out.length > 1000) { // final safety clamp at a clause boundary
-    let cut = out.slice(0, 1000);
+  if (!s.techOnly) body = genreSafeBody(s, body);
+  /* SUNO 6: the positive tail is the one statement that must never be
+     amputated. normalizePrompt() can GROW text (the "live-room" ->
+     "room-recorded" class of rewrites), so run it on the BODY first,
+     THEN clamp at a clause boundary against the exact remaining budget,
+     and only then append the pre-cleaned tail. */
+  const v = styleTail(s);
+  const tailFull = v ? " " + v : "";
+  const bodyCap = 1000 - tailFull.length - 1;
+  body = normalizePrompt(body);
+  if (body.length > bodyCap) {
+    let cut = body.slice(0, bodyCap);
     const m2 = cut.match(/^(.*[.;,])/);
-    if (m2 && m2[1].length > 500) cut = m2[1].trim();
-    out = normalizePrompt(cut);
+    if (m2 && m2[1].length > bodyCap * 0.5) cut = m2[1].trim();
+    body = cut.replace(/[,;\s]+$/, "");
+  }
+  let out = normalizePrompt(body + "." + tailFull);
+  if (out.length > 1000) { // defensive clamp at a clause boundary (tail kept)
+    let cut = out.slice(0, 1000 - tailFull.length);
+    const m2 = cut.match(/^(.*[.;,])/);
+    if (m2 && m2[1].length > 250) cut = m2[1].trim();
+    out = normalizePrompt(cut.replace(/[,;\s]+$/, "") + "." + tailFull);
   }
   return out;
 }
@@ -946,17 +1071,35 @@ export function buildFullBrief(state) {
   if (!s.hidden.arrangementCard && s.arrangement) sec.push("ARRANGEMENT: " + s.arrangement);
   sec.push("ENERGY ARC: " + arcLine(s) + ".");
   if (layers.length) sec.push("MIX & DETAIL: " + layers.map(l => l.phrase).join(", ") + ".");
-  sec.push("VOCAL POLICY: " + vocalLine(s) + ".");
-  /* strip "live" before the 3000-char cap so length accounting stays right */
+  sec.push("SUNO 6 ROUTING: everything above goes into the Style box; the blocks below go into their own Suno fields.");
+  /* SUNO 6 field routing: negatives go into Suno's dedicated Exclude
+     Styles field (inline negatives read as inclusion instructions on v6),
+     and the per-section performance skeleton goes into the Lyrics field
+     (v6 reads cues inside "[Section | direction]"). These machine blocks
+     are appended AFTER the sanitize/rewrite pipeline so nothing can
+     rewrite their intended negative wording or blow the prose budget.
+     Headers stay bare ("EXCLUDE STYLES:") so stripVocalCue's park rule
+     protects them byte-for-byte on every later pass. */
+  const ex = buildExcludeStyles(s);
+  const cues = sectionCues(s);
+  const tail = styleTail(s);
+  const fieldsText = [
+    tail ? "STYLE BOX TAIL:\n" + tail : "",
+    ex ? "EXCLUDE STYLES:\n" + ex : "",
+    cues ? "LYRICS SKELETON:\n" + cues : ""
+  ].filter(Boolean).join("\n\n");
+  const cap = 3000 - (fieldsText ? fieldsText.length + 2 : 0);
+  /* strip "live" before the cap so length accounting stays right */
   let text = sec.map(x => stripVocalCue(stripLive(sanitize(s, x)))).filter(Boolean).join("\n\n");
-  if (text.length > 3000) {
+  if (text.length > cap) {
     const parts = text.split("\n\n");
-    while (parts.length > 1 && parts.join("\n\n").length > 3000) parts.pop();
+    while (parts.length > 1 && parts.join("\n\n").length > cap) parts.pop();
     text = parts.join("\n\n");
-    if (text.length > 3000) { text = text.slice(0, 3000).replace(/\s+\S*$/, ""); }
+    if (text.length > cap) { text = text.slice(0, cap).replace(/\s+\S*$/, ""); }
   }
-  if (!s.techOnly) text = genreSafeText(s, text, true); // style names protected
-  return stripVocalCue(text);
+  if (!s.techOnly) text = genreSafeBody(s, text); // raw + derived style names protected
+  text = stripVocalCue(text);
+  return fieldsText ? text + "\n\n" + fieldsText : text;
 }
 
 /* ---------------------------- ENERGY ARC ---------------------------- */
@@ -1011,6 +1154,41 @@ export function scorePrompt(state) {
     label: "Prompt length", score: lenScore,
     note: len > 1000 ? "Over the 1000-char cap." : len >= 940 ? "Filling the box — maximum signal."
       : len >= 700 ? "Room left; unhide a section to use it." : "Short — a lot of the box is unused."
+  });
+
+  /* SUNO 6 Exclude hygiene: v6 reads an inline negative ("no vocals") in
+     the style box as an instruction to INCLUDE one, so the box must be
+     positive-only; negatives belong in buildExcludeStyles(). */
+  const negs = sp.match(/\bno\s+[a-z-]+/gi) || [];
+  const negScore = negs.length === 0 ? 100 : negs.length <= 2 ? 70 : 40;
+  items.push({
+    label: "Exclude hygiene", score: negScore,
+    note: negs.length === 0 ? "Style box is positive-only — negatives live in Exclude Styles."
+      : negs.length + " inline negation(s) in the style box — v6 may read them as requests."
+  });
+
+  /* SUNO 6 Mood coherence: v6 averages contradictory mood descriptors into
+     mush ("dark" + "euphoric" lands at "moody"). Flags opposing pairs in
+     the rolled emotion trio so a reroll can fix it. */
+  const MOOD_PAIRS = [
+    ["\\bdark\\b|\\bmenacing\\b|\\bominous\\b", "\\beuphoric\\b|\\buplifting\\b|\\bbright\\b|\\bjoyful\\b|\\bsunny\\b|\\bgleeful\\b|\\bgolden\\b"],
+    ["\\bdark\\b|\\bbleak\\b|\\bmenacing\\b", "\\btriumphant\\b|\\bcelebratory\\b|\\bfestive\\b"],
+    ["\\bmelancholic\\b|\\bsorrowful\\b|\\bmournful\\b", "\\beuphoric\\b|\\bexuberant\\b|\\bjoyful\\b|\\bgleeful\\b|\\bvictory-drunk\\b"],
+    ["\\bcalm\\b|\\bserene\\b|\\btranquil\\b|\\brelaxed\\b|\\bpeaceful\\b", "\\baggressive\\b|\\bviolent\\b|\\bferocious\\b|\\bbrutal\\b|\\bfurious\\b|\\brelentless\\b"],
+    ["\\bwarm\\b|\\bvelvet\\b", "\\bcold\\b|\\bfrigid\\b|\\bicy\\b|\\bfrozen\\b"],
+    ["\\bplayful\\b|\\bcheeky\\b", "\\bmenacing\\b|\\bthreatening\\b|\\bsinister\\b"],
+    ["\\bdreamy\\b|\\bwistful\\b", "\\bpunishing\\b|\\bcrushing\\b|\\bhammering\\b"]
+  ];
+  const emoText = [s.feeling, s.flavor, s.direction].filter(Boolean).join(" ").toLowerCase();
+  let moodConflict = "";
+  for (const [a, b] of MOOD_PAIRS) {
+    if (new RegExp(a, "i").test(emoText) && new RegExp(b, "i").test(emoText)) { moodConflict = "opposing mood pair in the emotion trio"; break; }
+  }
+  items.push({
+    label: "Mood coherence", score: moodConflict ? 55 : 100,
+    note: moodConflict
+      ? moodConflict + " — v6 averages contradictions into mush; reroll Feeling."
+      : "Emotion descriptors pull in one direction."
   });
 
   /* Sound density measured against what is actually achievable, not a flat

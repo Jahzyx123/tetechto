@@ -169,3 +169,14 @@ button { font: inherit; cursor: pointer; }
 .cmpTable td{padding:4px 6px;border-bottom:1px solid #1a1e35}
 .cmpTable td.up{color:#3ad07a}.cmpTable td.down{color:#ff6b6b}
 .cmpTable tr.w-a td:nth-child(2),.cmpTable tr.w-b td:nth-child(3){font-weight:700}
+
+/* SUNO 6 field-routing tips line under the output box */
+#v6tips {
+  font-size: 10.5px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  opacity: 0.55;
+  padding: 6px 2px 2px;
+  user-select: none;
+}
+#outbox.empty { opacity: 0.45; }
