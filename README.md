@@ -61,11 +61,11 @@ rolled energy arc with real bar counts:
 
 [Build]
 
-(16-bar build, drums tighten, energy rises to 68%, noise-driven build)
+(16-bar build, drums tighten, energy rises to 68%, clean tension build, white-noise riser)
 
 [Drop]
 
-(32-bar drop, full groove lands, main melody theme, 100% energy)
+(32-bar drop, full groove lands, main melody theme, 100% energy, hyper-driven anthem drop drive)
 
 [Breakdown]
 
@@ -73,11 +73,11 @@ rolled energy arc with real bar counts:
 
 [Build]
 
-(16-bar build, drums tighten, energy rises to 78%)
+(16-bar build, drums tighten, final build, highest energy of the track, energy rises to 78%)
 
 [Climax]
 
-(32-bar climax, full groove lands, main melody theme, 100% energy)
+(32-bar climax, final peak, maximum intensity, full-power finale, 100% energy, armored-column impact)
 
 [Outro]
 
@@ -88,6 +88,14 @@ rolled energy arc with real bar counts:
 
 No sung lyrics needed — it is a pure instrumental arrangement script that
 matches the style box (same groove/riser/drop atoms, same arc).
+
+**Escalating repeats:** v6 renders near-identical repeated sections as a
+literal repeat, so repeated sections never repeat their cues — the second
+build *climbs higher and adds a layer* (or is the *final build*), middle
+peaks are *fresh variations, even bigger*, and the last peak is the
+*full-power finale*. Repeats even draw on different rolled atoms (riser +
+transition for later builds, impact + energy curve for the finale), so
+every section of the doc carries new information.
 * **NO-STOP and HIDE-BEATS went positive too.** Their policy lines state
   what should happen ("continuous beat, seamless section changes, ultra
   delivery"); the old negative lists live in the Exclude Styles block.

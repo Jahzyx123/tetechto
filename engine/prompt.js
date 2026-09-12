@@ -859,21 +859,59 @@ export function sectionCues(s) {
   add(s.dropType); add(s.energyCurve); add(s.sectionDensity);
   const buildCue = fx.slice(0, 2).join(", ");
   const dropCue = [fit(s.dropType), gro].filter(Boolean).slice(0, 2).join(", ");
+  /* later repeats draw on DIFFERENT atoms so no two sections of a family
+     ever read the same (v6 would render near-identical repeats literally) */
+  const riserCue = [fit(s.riserType), fit(s.transitionType)].filter(Boolean).slice(0, 2).join(", ");
+  const impactCue = [fit(s.impactType), fit(s.energyCurve)].filter(Boolean).slice(0, 2).join(", ");
+  const variationCue = [fit(s.transitionType), fit(s.sectionDensity)].filter(Boolean).slice(0, 2).join(", ");
   const hb = !!s.hideBeats;
+  /* ESCALATING REPEATS — arcs repeat section names (two Builds, several
+     Drops/Climaxes). v6 renders near-identical repeated sections as a
+     literal repeat, so cue #2+ must describe a journey: builds climb and
+     add layers, later peaks are fresh variations, the last peak is the
+     full-power finale. Sections are counted per FAMILY (Drop/Climax/
+     Finale are all "peaks"; Build/Rise are all "builds") so a Drop into
+     a Climax reads as peak one, peak two — not two first attempts. */
+  const famOf = n => /^(Drop|Climax|Finale)$/i.test(n) ? "peak"
+    : /^(Build|Rise)$/i.test(n) ? "build" : n.toLowerCase();
+  const totals = {};
+  for (const x of arc) { const f = famOf(x.name); totals[f] = (totals[f] || 0) + 1; }
+  const seen = {};
+  const ORD = ["", "first", "second", "third", "fourth", "fifth", "sixth"];
   const out = [];
   arc.forEach(x => {
     const noun = x.name.toLowerCase();
+    const fam = famOf(x.name);
+    const occ = seen[fam] = (seen[fam] || 0) + 1;
+    const tot = totals[fam];
     let cue = "";
     if (/^Intro$/i.test(x.name)) cue = [x.bars + "-bar " + noun,
       [atm, gro].filter(Boolean).slice(0, 2).join(", "),
       hb ? "lead melody waits" : "groove sets in, melody waits"].filter(Boolean).join(", ");
-    else if (/^(Build|Rise)$/i.test(x.name)) cue = [x.bars + "-bar " + noun,
-      hb ? "energy rises to " + x.energy + "%" : "drums tighten, energy rises to " + x.energy + "%",
-      buildCue].filter(Boolean).join(", ");
-    else if (/^(Drop|Climax)$/i.test(x.name)) cue = [x.bars + "-bar " + noun,
-      hb ? "main melody theme, " + x.energy + "% energy"
-         : "full groove lands, main melody theme, " + x.energy + "% energy",
-      dropCue].filter(Boolean).join(", ");
+    else if (fam === "build") {
+      const en = "energy rises to " + x.energy + "%";
+      const core = occ === tot && tot > 1
+        ? (hb ? "final build, highest energy of the track, " + en
+              : "drums tighten, final build, highest energy of the track, " + en)
+        : occ === 1
+          ? (hb ? en : "drums tighten, " + en)
+          : (hb ? "climbs higher than the previous build, one new layer enters, " + en
+                : "drums tighten, climbs higher than the previous build, one new layer enters, " + en);
+      cue = [x.bars + "-bar " + noun, core, occ === 1 ? buildCue : riserCue].filter(Boolean).join(", ");
+    }
+    else if (fam === "peak") {
+      const en = x.energy + "% energy";
+      const core = occ === tot && tot > 1
+        ? (hb ? "final peak, maximum intensity, " + en
+              : "final peak, maximum intensity, full-power finale, " + en)
+        : occ === 1
+          ? (hb ? "main melody theme lands, " + en
+                : "full groove lands, main melody theme, " + en)
+          : (hb ? ORD[occ] + " peak, fresh variation of the main theme, " + en
+                : ORD[occ] + " peak, fresh variation of the main theme, even bigger, " + en);
+      cue = [x.bars + "-bar " + noun, core,
+        occ === 1 ? dropCue : occ === tot ? impactCue : variationCue].filter(Boolean).join(", ");
+    }
     else if (/^(Breakdown|Release)$/i.test(x.name)) cue = [x.bars + "-bar " + noun,
       "energy dips to " + x.energy + "%",
       hb ? "melody keeps leading, nothing extra enters"

@@ -394,6 +394,21 @@ section("SUNO 6.0 field routing (positive style box / exclude / cues)");
   const cuesHB = E.sectionCues(sHB2);
   ok(!/drums tighten|full groove lands/.test(cuesHB) && /main melody theme/.test(cuesHB),
     "hide-beats structure doc swaps drum words for melody words");
+
+  /* SUNO 6 escalation: repeated sections never repeat cues (v6 renders
+     near-identical repeats literally) */
+  const cEsc = E.sectionCues(freshTechno());
+  ok((cEsc.match(/full groove lands/g) || []).length <= 1, "landing cue appears at most once per doc");
+  ok(/climbs higher than the previous build|final build/.test(cEsc), "second build escalates (climbs higher / final build)");
+  ok(/fresh variation of the main theme|final peak, maximum intensity/.test(cEsc), "second peak escalates (fresh variation / final peak)");
+  const sPeaks = E.defaultState(); E.setNoStop(sPeaks, true); E.roll(sPeaks, "everything");
+  const cPeaks = E.sectionCues(sPeaks);
+  ok(/maximum intensity/.test(cPeaks), "third peak escalates to maximum intensity (no-stop 3-peak arc)");
+  ok((cPeaks.match(/fresh variation/g) || []).length === 1, "fresh-variation wording used exactly once (no copy-paste sections)");
+  const sMid = E.defaultState(); E.setNoStop(sMid, true); sMid.duration = "extended"; E.roll(sMid, "everything");
+  const cMid = E.sectionCues(sMid);
+  ok((cMid.match(/peak, fresh variation/g) || []).length >= 1 && /final peak/.test(cMid),
+    "4-peak extended arc: middle peaks get ordinal variation cues, last gets the finale");
   ok(briefOk === 80, "Full Brief field-routes EXCLUDE STYLES + LYRICS SKELETON blocks");
 
   /* cues follow the energy arc: no-stop has no Breakdown, standard does */
@@ -591,6 +606,41 @@ section("Suno token hygiene (no error/auto-replace tokens)");
   const hostile = E.STYLES.filter(x => BAD.test(x.n));
   ok(hostile.every(x => P.fixSunoTokens(x.n) !== x.n),
     "every pool style carrying a hostile token is rewritten by fixSunoTokens (" + hostile.length + " verbatim carriers)");
+
+  /* FULL-POOL AUDIT — deterministic, not sampled: EVERY string in EVERY
+     pool (data exports, engine exports, merged sound pools, concept and
+     melody-concept maps) through the fix layer. A value escapes only if
+     EVERY fix path still leaves a hostile token in it. Any future pool
+     addition carrying a Suno-hostile token fails right here. */
+  {
+    let audited = 0;
+    const esc = [];
+    const check = (v, src) => {
+      if (typeof v !== "string" || !v) return;
+      audited++;
+      const fixed = [P.fixSunoTokens(v), P.fixSunoTokens(P.stripLive(v)),
+        P.fixSunoTokens(P.stripVocalCue(v)), P.fixSunoTokens(P.tightenPhrase(v))];
+      if (fixed.every(f => BAD.test(f))) esc.push(src + ": " + v);
+    };
+    const scanArr = (arr, srcName) => {
+      if (!Array.isArray(arr)) return;
+      for (const v of arr) {
+        if (typeof v === "string") check(v, srcName);
+        else if (v && typeof v === "object") {
+          if (typeof v.n === "string") check(v.n, srcName + ".n");
+          if (typeof v.phrase === "string") check(v.phrase, srcName + ".phrase");
+          if (Array.isArray(v.subs)) v.subs.forEach(sv => check(sv, srcName + ".sub"));
+        }
+      }
+    };
+    for (const k of Object.keys(D)) scanArr(D[k], "D." + k);
+    for (const k of Object.keys(E)) { if (k in D) continue; scanArr(E[k], "E." + k); }
+    for (const k of Object.keys(E.POOL_OF || {})) E.POOL_OF[k].forEach(v => check(v, "pool:" + k));
+    for (const k of Object.keys(E.MELODY_CONCEPT_POOL || {})) (E.MELODY_CONCEPT_POOL[k] || []).forEach(v => check(v, "mc:" + k));
+    for (const k of Object.keys(D.CONCEPT || {})) (D.CONCEPT[k] || []).forEach(v => check(v, "concept:" + k));
+    ok(esc.length === 0, "full-pool audit: all " + audited + " pool values Suno-clean after the fix layer"
+      + (esc.length ? " — escapees: " + esc.slice(0, 3).join(" | ") : ""));
+  }
 }
 
 /* ---------------- melody intensity (no simple/relax) ---------------- */
