@@ -41,11 +41,11 @@ const MAP = {
   cm: "counterMelody", cmr: "counterMelodyRelation", vc: "voiceConcept", vr: "voiceRelation",
   slim: "slim", lfg: "lastFitGenre",
   slt: "soundLite", nst: "noStop", hbt: "hideBeats",
-  mx: "maxStyle"
+  mx: "maxStyle", vp: "vocalProfile"
 };
 
 export function encodeState(s) {
-  const m = { sd: s.seed, st: s.structure, sf: s.styleFit, cp: s.concept, mc: s.melodyConcept, ly: s.layers, lk: s.locks, hd: s.hidden };
+  const m = { sd: s.seed, st: s.structure, sf: s.styleFit, cp: s.concept, mc: s.melodyConcept, ly: s.layers, lk: s.locks, hd: s.hidden, ltx: s.lyrics };
   for (const short in MAP) m[short] = s[MAP[short]];
   const json = JSON.stringify(m);
   return toB64(json).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -65,6 +65,8 @@ export function decodeState(str) {
     if (m.ly) s.layers = m.ly;
     if (m.lk) { s.locks = defaultLocks(); Object.assign(s.locks, m.lk); }
     if (m.hd) { s.hidden = defaultHidden(); Object.assign(s.hidden, m.hd); }
+    if (m.ltx && typeof m.ltx === "object") s.lyrics = Object.assign({ text: "", seed: 0, nonces: {}, edited: false }, m.ltx);
+    if (m.vp) s.vocalProfile = String(m.vp);
     return s;
   } catch (e) { return null; }
 }

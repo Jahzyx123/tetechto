@@ -105,8 +105,11 @@ export const ORGANIC_MAP = [
   [/\b(acid[- ]?squelch|acid[- ]?drenched|acid[- ]?fueled|303[- ]?style|303[- ]?filtered|bunker[- ]?rattling|peak[- ]?time|warehouse[- ]?powered|warehouse[- ]?echo|rave[- ]?charged|rave[- ]?stab|trance[- ]?pluck|saw[- ]?stack|triple[- ]?oscillator|hands[- ]?in[- ]?the[- ]?air|siren[- ]?like|siren[- ]?sweep|sub[- ]?wobble|turbo[- ]?charged|piston[- ]?powered|voltage[- ]?spiked|modular[- ]?patched|micro[- ]?swept|rave[- ]?fueled|synth[- ]?string bass|kick[- ]?locked|filter[- ]?swept|overdrive[- ]?slammed|gate[- ]?stab)\b/gi, " "],
   /* machine-model numbers */
   [/\b(909|808|303)\b/gi, " "],
-  /* pure techno nouns / instruments */
-  [/\b(sidechain|rave|trance|acid|hardstyle|gabber|industrial|breakbeat|dubstep|techno|warehouse|festival|mainstage|bigroom|laser|glitch|bitcrush|wobble|synthesizer|synth|stadium|arena|bunker|machine|oscillator|circuit|siren|cyberpunk|reese|filter|hardgroove(?!-)|wavetable|FM|sine|overdrive|factory)\b/gi, " "],
+  /* pure techno nouns / instruments. "tekno" (free-party spelling),
+     hardtek/tribetek/hard tech are the same family and get rephrased too;
+     picked style names are parked before this runs so "Hyper Los Angeles
+     Tekno" stays byte-for-byte intact. */
+  [/\b(sidechain|rave|trance|acid|hardstyle|gabber|hardtek|tribetek|industrial|breakbeat|dubstep|techno|tekno|hard\s+tech|warehouse|festival|mainstage|bigroom|laser|glitch|bitcrush|wobble|synthesizer|synth|stadium|arena|bunker|machine|oscillator|circuit|siren|cyberpunk|reese|filter|hardgroove(?!-)|wavetable|FM|sine|overdrive|factory)\b/gi, " "],
   /* adjective stack that only makes sense on electronic drums/synths */
   [/\b(relentless|punishing|brutal|berserk|slammed|slamming|clipped|gated|stuttered|stuttering|distorted|stomping|hammering)\b/gi, " "],
   [/\btightly\s+gated\b/gi, "tight"],
@@ -130,7 +133,7 @@ export const HYBRID_MAP = [
   /* compound techno-isms — only the ones with no place outside techno */
   [/\b(acid[- ]?squelch|acid[- ]?drenched|acid[- ]?fueled|acid[- ]?searing|303[- ]?style|303[- ]?filtered|bunker[- ]?rattling|peak[- ]?time|warehouse[- ]?powered|warehouse[- ]?echo|rave[- ]?charged|rave[- ]?stab|trance[- ]?pluck|saw[- ]?stack|triple[- ]?oscillator|siren[- ]?like|sub[- ]?wobble|turbo[- ]?charged|piston[- ]?powered|voltage[- ]?spiked|modular[- ]?patched|micro[- ]?swept|rave[- ]?fueled|kick[- ]?locked|gate[- ]?stab)\b/gi, " "],
   [/\b(909|808|303)\b/gi, " "],
-  [/\b(sidechain|rave|trance|acid|hardstyle|gabber|industrial|warehouse|mainstage|bigroom|hardgroove(?!-)|reese)\b/gi, " "]
+  [/\b(sidechain|rave|trance|acid|hardstyle|gabber|hardtek|tribetek|tekno|industrial|warehouse|mainstage|bigroom|hardgroove(?!-)|reese)\b/gi, " "]
 ];
 
 export function genreSafeText(s, text, protectStyles) {

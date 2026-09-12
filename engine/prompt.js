@@ -14,9 +14,11 @@ import { hasHandPerc, NO_STOP_BAD_RE } from "./state.js";
 import { ARC_TEMPLATES } from "../data/concept.js";
 import { MELODY_FORCE } from "../data/scales.js";
 import { COUNTER_ROLE, VOICE_ROLE } from "../data/atoms.js";
-import { pick } from "./prng.js";
+import { pick, makeRng } from "./prng.js";
 import { keyName, camelot, scaleOf, microOf, freqOf, scaleNote } from "./music.js";
 import { genreWorld, genreSafeText } from "./world.js";
+import { concreteProgression, diatonicTriads, progressionText } from "./harmony.js";
+import { vocalDescriptor } from "./lyrics.js";
 
 const VOCAL_RE = new RegExp("\\b(" + VOCAL_WORDS.join("|") + ")\\b", "i");
 export function hasVocalRef(text) { return VOCAL_RE.test(text); }
@@ -130,28 +132,51 @@ const PACK_CARD = {
    waste characters that could carry another sound, so collapse them at
    pack time. The pools on disk stay verbatim. */
 const FILLER = "force|drive|pressure";
+/* Output-time rewriters must never rename the style the user picked or
+   rolled: a combo like "Black Gospel" or "Cantonese Opera Chinese" must not
+   come out as "Black Church" / "Cantonese Concert Chinese", and a locked
+   techno style ("Hyper Los Angeles Tekno") must survive genre-safe
+   rephrasing in no-techno mode. Every rewriter therefore accepts an
+   optional protect list: those substrings are parked on sentinel
+   placeholders while the rules run, then restored byte-for-byte.
+   Sentinel \u0002 must differ from stripVocalCue's own \u0001 parking. */
+function parkProtected(text, protect) {
+  const ph = [];
+  let t = String(text == null ? "" : text);
+  (protect || []).map(x => String(x)).filter(Boolean)
+    .sort((a, b) => b.length - a.length)
+    .forEach(p => {
+      const re = new RegExp(p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
+      t = t.replace(re, m => { ph.push(m); return "\u0002" + (ph.length - 1) + "\u0002"; });
+    });
+  return { t, restore: x => ph.length ? x.replace(/\u0002(\d+)\u0002/g, (m, i) => ph[+i] != null ? ph[+i] : m) : x };
+}
+const styleProtect = s => s ? [s.primaryStyle, s.secondaryStyle].filter(Boolean) : [];
+
 /* The word "live" must never reach the output: Suno reads it as a concert
-   recording. Pool values and a few verbatim style names carry it, so it is
-   rewritten at output rather than by editing the verbatim pools. Compound
-   forms get a sensible replacement instead of being cut to a fragment
-   ("Live-Room Jazz" -> "Room-Recorded Jazz", not "Room Jazz"). */
-export function stripLive(v) {
-  let t = String(v || "");
+   recording. Pool values carry it, so it is rewritten at output rather than
+   by editing the verbatim pools. Compound forms get a sensible replacement
+   instead of being cut to a fragment ("live-room" -> "room-recorded").
+   Picked style names are protected and pass through verbatim. */
+export function stripLive(v, protect) {
+  const P = parkProtected(v, protect);
+  let t = P.t;
   t = t.replace(/\blive-room\b/gi, m => m[0] === "L" ? "Room-Recorded" : "room-recorded");
   t = t.replace(/\blive-jam\b/gi, m => m[0] === "L" ? "Jam" : "jam");
   t = t.replace(/\blive-band\b/gi, m => m[0] === "L" ? "Band" : "band");
   t = t.replace(/\blive-drummer\b/gi, m => m[0] === "L" ? "Drummer" : "drummer");
   t = t.replace(/\bsampled-and-live\b/gi, m => m[0] === "S" ? "Sampled" : "sampled");
   t = t.replace(/\blive\b[ -]?/gi, "");
-  return t.replace(/\s+/g, " ").replace(/\s+([,.;:])/g, "$1").trim();
+  return P.restore(t.replace(/\s+/g, " ").replace(/\s+([,.;:])/g, "$1").trim());
 }
 
-export function tightenPhrase(v) {
-  let t = String(v || "");
+export function tightenPhrase(v, protect) {
+  const P = parkProtected(v, protect);
+  let t = P.t;
   t = t.replace(new RegExp("\\b(" + FILLER + ")(\\s+(?:" + FILLER + "))+\\b", "gi"), "$1");
   t = t.replace(/\b(\w+)ing\s+\1\b/gi, "$1ing");
   t = t.replace(new RegExp("\\b(\\w+)\\s+\\1\\b", "gi"), "$1");
-  return t.replace(/\s+/g, " ").trim();
+  return P.restore(t.replace(/\s+/g, " ").trim());
 }
 
 /* Suno hears a human vocal cue in prompt words that have nothing to do
@@ -169,8 +194,11 @@ export function tightenPhrase(v) {
    ("no vocals, no lyrics, no chants, no choir...") and the vocal-mode-only
    directions (VOCAL_DIRECTIONS). Both are parked on sentinel placeholders
    before any rule runs and restored untouched at the end. */
-export function stripVocalCue(text) {
-  let t = String(text || "");
+export function stripVocalCue(text, protect) {
+  /* picked/rolled style names are parked first so words inside them
+     ("Black Gospel", "Cantonese Opera Chinese") are never renamed */
+  const outer = parkProtected(text, protect);
+  let t = outer.t;
   const cap1 = (m, c) => m[0] === m[0].toUpperCase() && m === m.toUpperCase()
     ? c.toUpperCase()
     : m[0] === m[0].toUpperCase()
@@ -183,6 +211,9 @@ export function stripVocalCue(text) {
   const unPark = (x) => x.replace(/\u0001(\d+)\u0001/g, (m, i) => keep[+i] !== undefined ? keep[+i] : m);
   t = t.replace(/\bvocal:\s*[^.!?\n]*/gi, park);
   t = t.replace(/\bno\s+(?:vocals?|lyrics?|screaming|screams?|chants?|choirs?|spoken|shouts?|singing|songs?|verses?|choruses?)[^.!?\n]*/gi, park);
+  /* the Full Brief section label must survive untouched so the policy +
+     lyric sheet stay identifiable (and never reach the generic rewrites) */
+  t = t.replace(/\bvocal policy\b/gi, park);
 
   /* "chord voicings" -> "chord spreads" / "chord voicing" -> "chord spread"
      (never "chord chord spreads") */
@@ -354,7 +385,7 @@ export function stripVocalCue(text) {
   /* aria = showpiece (Aria Pop -> Showpiece Pop) */
   t = t.replace(/\barias?\b/gi, (m) => cap1(m, /s$/i.test(m) ? "showpieces" : "showpiece"));
 
-  return unPark(t);
+  return outer.restore(unPark(t));
 }
 
 
@@ -382,7 +413,9 @@ export function densify(s, body, budget) {
      pool value ("synth-driven hook") won't match its rewritten form
      ("driven hook") and would be packed in twice. Compare — and insert —
      the rewritten text. */
-  const fit = v => tightenPhrase(stripVocalCue(!s.techOnly ? genreSafeText(s, String(v), true) : String(v)));
+  const fitProt = styleProtect(s);
+  const fit = v => tightenPhrase(
+    stripVocalCue(!s.techOnly ? genreSafeText(s, String(v), true) : String(v), fitProt), fitProt);
   const has = v => out.toLowerCase().includes(String(v).toLowerCase());
 
   /* collect everything still missing, grouped, shortest-first.
@@ -494,11 +527,11 @@ function dropEmptyLabels(text) {
     .replace(/(^|\. )([A-Z][A-Za-z&\/\- ]{1,14}):\s*(?=[A-Z][A-Za-z&\/\- ]{1,14}:)/g, "$1")
     .replace(/(^|\. )([A-Z][A-Za-z&\/\- ]{1,14}):\s*(?=\.|$)/g, "$1");
 }
-export function normalizePrompt(text) {
+export function normalizePrompt(text, protect) {
   let t = dropEmptyLabels(String(text || ""));
-  t = stripLive(t);
-  t = stripVocalCue(t);
-  t = tightenPhrase(t);
+  t = stripLive(t, protect);
+  t = stripVocalCue(t, protect);
+  t = tightenPhrase(t, protect);
   t = t.replace(/\s+/g, " ").trim();
   t = t.replace(/(\.|,)\s*(?=\.|,)/g, ".").replace(/\.{2,}/g, ".");
   t = t.replace(/,\s*,/g, ",");
@@ -611,7 +644,11 @@ export function soundDesignLine(s, compact) {
   if (compact) return "Sound Design: " + parts.slice(0, 3).join(", ");
   return "Sound Design: " + parts.join(", ") + (s.soundIntensity ? ", " + s.soundIntensity : "");
 }
-export function chordProgLine(s) { return s.chordProg ? "Chord Progression: " + s.chordProg : ""; }
+export function chordProgLine(s) {
+  if (!s.chordProg) return "";
+  const concrete = concreteProgression(s);
+  return "Chord Progression: " + s.chordProg + (concrete ? " (" + concrete + ")" : "");
+}
 export function rhythmPatternLine(s) { return s.rhythmPattern ? "Rhythm Pattern: " + s.rhythmPattern : ""; }
 export function mixMasterLine(s, compact) {
   const parts = [];
@@ -714,7 +751,13 @@ export function vocalLine(s) {
     const g = (s.primaryGenre && !/techno/i.test(s.primaryGenre)) ? s.primaryGenre : "instrumental";
     return "instrumental " + g.toLowerCase() + ", no vocals, no lyrics, no screaming, no chants, no choir, no spoken words";
   }
-  if (s.vocalMode) return "vocal: " + pick(VOCAL_DIRECTIONS);
+  if (s.vocalMode) {
+    /* deterministic per state-seed: the built prompt must be byte-stable
+       across scorePrompt()/render() re-builds, so do NOT draw the vocal
+       direction from the live global RNG. */
+    const rng = makeRng(s.seed || 1, 4242, 11);
+    return "vocal: " + vocalDescriptor(s) + " — " + rng.pick(VOCAL_DIRECTIONS);
+  }
   return "";
 }
 export function structTags(s) {
@@ -747,6 +790,7 @@ export function hideBeatsLine(s, compact) {
 /* ---------------------------- PROMPT BUILDERS ---------------------------- */
 export function buildStylePrompt(state) {
   const s = state;
+  const prot = styleProtect(s);
   const SLIM = !!s.slim;
   const flavor = (!s.techOnly && SLIM) ? (genreWorld(s.primaryGenre) === "organic" ? " — acoustic instrumentation" : genreWorld(s.primaryGenre) === "hybrid" ? " — acoustic and electronic hybrid instrumentation" : "") : "";
   const blocks = [{ t: SLIM ? (s.primaryStyle + (s.secondaryStyle ? ", " + s.secondaryStyle : "") + flavor) : styleLine(s), required: true, priority: 1 }];
@@ -857,7 +901,7 @@ export function buildStylePrompt(state) {
   /* "voicing" must be gone before densify compares / inserts: Suno reads
      it as a human voice ("hey"/"houuu"); the rewrite is idempotent, so the
      final normalizePrompt pass does not double-apply it. */
-  body = stripVocalCue(body);
+  body = stripVocalCue(body, prot);
   /* spend every leftover character on rolled sounds that didn't make the cut */
   const v0 = s.instrumental ? vocalLineCompact(s) : vocalLine(s);
   const reserve = (v0 ? v0.length + 2 : 1) + tagCost + 2;
@@ -865,16 +909,15 @@ export function buildStylePrompt(state) {
   body = sanitize(s, body);
   if (!s.techOnly) body = genreSafeText(s, body, true);
   if (s.structure && !s.hidden.styleCard) body += TAGS;
-  const v = s.instrumental ? vocalLineCompact(s) : vocalLine(s);
-  let out = normalizePrompt(body + "." + (v ? " " + v : ""));
+  let out = normalizePrompt(body + "." + (v0 ? " " + v0 : ""), prot);
   if (s.structure && out.length > 1000) {
-    out = normalizePrompt(out.replace(TAGS, ""));
+    out = normalizePrompt(out.replace(TAGS, ""), prot);
   }
   if (out.length > 1000) { // final safety clamp at a clause boundary
     let cut = out.slice(0, 1000);
     const m2 = cut.match(/^(.*[.;,])/);
     if (m2 && m2[1].length > 500) cut = m2[1].trim();
-    out = normalizePrompt(cut);
+    out = normalizePrompt(cut, prot);
   }
   return out;
 }
@@ -888,6 +931,10 @@ export function buildFullBrief(state) {
   if (s.noStop) sec.push("NON-STOP: continuous beat from start to finish — no breaks, no bridges, no breakdowns, no silent gaps, seamless section changes, ultra delivery: relentless energy from the first bar to the last.");
   if (s.hideBeats) sec.push("MELODY-ONLY: no drums, no percussion, no bass, no added instruments or effects — only the style's own lead melody and its pattern.");
   if (!s.hidden.key) sec.push("KEY: " + keyName(s) + " (Camelot " + camelot(s) + ") — " + scaleOf(s).mood + ".");
+  if (!s.hidden.key) {
+    const triads = diatonicTriads(s);
+    if (triads.length) sec.push("DIATONIC CHORDS: " + triads.join(", ") + ".");
+  }
   if (!s.hidden.feelCard) {
     if (f !== "balanced") sec.push("MELODIC FOCUS: " + MELODY_FORCE[f].desc + ".");
     const emo = [cleanFrag(s, s.feeling), cleanFrag(s, s.flavor)].filter(Boolean).join(" and ");
@@ -921,7 +968,7 @@ export function buildFullBrief(state) {
     const sdl = soundDesignLine(s, false);
     if (sdl) sec.push(sdl.toUpperCase() + ".");
   }
-  if (!s.hidden.harmonyLabCard && s.chordProg) sec.push("CHORD PROGRESSION: " + s.chordProg + ".");
+  if (!s.hidden.harmonyLabCard && s.chordProg) sec.push("CHORD PROGRESSION: " + progressionText(s) + ".");
   if (!s.hidden.rhythmLabCard && s.rhythmPattern) sec.push("RHYTHM PATTERN: " + s.rhythmPattern + ".");
   if (!s.hidden.mixMasterCard) {
     const mml = mixMasterLine(s, false);
@@ -947,16 +994,54 @@ export function buildFullBrief(state) {
   sec.push("ENERGY ARC: " + arcLine(s) + ".");
   if (layers.length) sec.push("MIX & DETAIL: " + layers.map(l => l.phrase).join(", ") + ".");
   sec.push("VOCAL POLICY: " + vocalLine(s) + ".");
-  /* strip "live" before the 3000-char cap so length accounting stays right */
-  let text = sec.map(x => stripVocalCue(stripLive(sanitize(s, x)))).filter(Boolean).join("\n\n");
-  if (text.length > 3000) {
+  /* strip "live" before the 3000-char cap so length accounting stays right.
+     Production sections are fully sanitized/rewritten; the LYRICS block is
+     appended AFTER those passes on purpose — lyrics are supposed to contain
+     words like "sing"/"voice"/"live" and must never be neutralized.
+     Genre rewriting runs PER SECTION: on the joined brief it collapses the
+     blank-line paragraph separators and fuses the sections together. */
+  const briefProt = styleProtect(s);
+  let text = sec.map(x => {
+    let y = stripVocalCue(stripLive(sanitize(s, x), briefProt), briefProt);
+    if (!s.techOnly) y = genreSafeText(s, y, true);   // style names protected
+    return y;
+  }).filter(Boolean).join("\n\n");
+  text = stripVocalCue(text, briefProt);
+
+  const lyrics = (s.vocalMode && !s.instrumental && s.lyrics && s.lyrics.text) ? String(s.lyrics.text).trim() : "";
+  if (lyrics) {
+    /* The lyric sheet is the point of a vocal brief, so it is reserved
+       FIRST: keep the production prefix ≥ ~850 chars, give the rest to
+       words. VOCAL POLICY stays anchored directly above LYRICS (its label
+       is parked against stripVocalCue, see stripVocalCue). */
+    const parts = text.split("\n\n");
+    const vIdx = parts.findIndex(p => p.startsWith("VOCAL POLICY"));
+    const vpol = vIdx >= 0 ? parts.splice(vIdx, 1)[0] : "";
+    const tailHead = (vpol ? vpol + "\n\n" : "") + "LYRICS:\n";
+    const MIN_PROD = 850;
+    let lyricBlock = lyrics;
+    let lyricCap = 3000 - MIN_PROD - tailHead.length - 4;
+    if (lyricBlock.length > lyricCap) {
+      lyricBlock = lyricBlock.slice(0, lyricCap).replace(/\n[^\n]*$/, "");
+    }
+    const tail = tailHead + lyricBlock;
+    let budget = 3000 - tail.length - 4;
+    const kept = [];
+    for (const p of parts) {
+      if (kept.length && (kept.join("\n\n").length + p.length + 2 > budget)) break;
+      kept.push(p);
+    }
+    /* if even the first sections overflow, hard-clamp the prefix itself */
+    let prod = kept.join("\n\n");
+    if (prod.length > budget) prod = prod.slice(0, budget).replace(/\n[^\n]*$/, "");
+    text = prod + "\n\n" + tail;
+  } else if (text.length > 3000) {
     const parts = text.split("\n\n");
     while (parts.length > 1 && parts.join("\n\n").length > 3000) parts.pop();
     text = parts.join("\n\n");
     if (text.length > 3000) { text = text.slice(0, 3000).replace(/\s+\S*$/, ""); }
   }
-  if (!s.techOnly) text = genreSafeText(s, text, true); // style names protected
-  return stripVocalCue(text);
+  return text.trim();
 }
 
 /* ---------------------------- ENERGY ARC ---------------------------- */

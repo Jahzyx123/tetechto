@@ -169,3 +169,61 @@ button { font: inherit; cursor: pointer; }
 .cmpTable td{padding:4px 6px;border-bottom:1px solid #1a1e35}
 .cmpTable td.up{color:#3ad07a}.cmpTable td.down{color:#ff6b6b}
 .cmpTable tr.w-a td:nth-child(2),.cmpTable tr.w-b td:nth-child(3){font-weight:700}
+
+/* ---------------- preset recipes bar ---------------- */
+#presetBar {
+  display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+  padding: 8px 16px; border-bottom: 1px solid var(--line);
+  background: var(--panel); position: sticky; top: 0; z-index: 30;
+}
+.presetLab { font-size: .68rem; letter-spacing: 1.4px; text-transform: uppercase; color: var(--dim); margin-right: 4px; }
+.presetChip {
+  background: var(--panel2); border: 1px solid var(--line); color: var(--text);
+  border-radius: 20px; padding: 3px 11px; font-size: .78rem; white-space: nowrap;
+}
+.presetChip:hover { border-color: var(--magenta); color: var(--magenta); }
+
+/* ---------------- energy arc visualizer ---------------- */
+#arcWrap { padding: 4px 12px 12px; border-top: 1px dashed rgba(35,39,65,.7); }
+.arcviz { margin-top: 8px; }
+.arcRow { display: flex; gap: 3px; height: 76px; align-items: stretch; }
+.arcSeg { flex: 1; min-width: 26px; display: flex; flex-direction: column; justify-content: flex-end; }
+.arcTrack { flex: 1; display: flex; align-items: flex-end; background: rgba(255,255,255,.03); border-radius: 4px 4px 0 0; overflow: hidden; }
+.arcBar { width: 100%; border-radius: 3px 3px 0 0; min-height: 4px; transition: height .25s; opacity: .9; }
+.arcSeg:hover .arcBar { opacity: 1; }
+.arcLbl { text-align: center; padding-top: 4px; }
+.arcLbl b { display: block; font-size: .62rem; font-weight: 600; color: var(--text); white-space: nowrap; }
+.arcLbl span { display: none; }
+.arcSeg:hover .arcLbl span { display: block; font-size: .62rem; color: var(--dim); }
+.arcFoot { display: flex; justify-content: space-between; margin-top: 6px; font-size: .68rem; color: var(--dim); }
+
+/* ---------------- lyrics studio tab ---------------- */
+#lyricsBar { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--panel2); flex-wrap: wrap; }
+#lyricsBar select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+#secChips { display: flex; flex-wrap: wrap; gap: 5px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+#secChips .secRoll { font-size: .72rem; padding: 2px 8px; }
+#lyricsBox {
+  width: 100%; min-height: 48vh; max-height: 60vh; resize: vertical;
+  border: 0; background: transparent; color: var(--text);
+  padding: 14px; font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: .86rem; line-height: 1.65; white-space: pre-wrap; outline: none;
+}
+#lyricsBox:focus { box-shadow: 0 0 0 1px var(--magenta) inset; }
+#lyricsHint { padding: 6px 14px 10px; font-size: .72rem; border-top: 1px solid var(--line); }
+.chip.on-vocal { color: var(--magenta); border-color: var(--magenta); }
+
+/* ---------------- batch forge modal ---------------- */
+.modal .box.batchBox { width: min(1100px, 97vw); max-height: 92vh; }
+#batchStatus { padding: 6px 14px; font-size: .76rem; border-bottom: 1px solid var(--line); }
+.batchGrid { overflow: auto; padding: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; align-content: start; }
+.batchCard { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 4px; }
+.batchCard:hover { border-color: var(--cyan); }
+.batchHead { display: flex; justify-content: space-between; align-items: center; }
+.batchRank { color: var(--dim); font-size: .72rem; letter-spacing: 1px; }
+.batchScore { font-size: 1.3rem; font-weight: 800; color: var(--lime); }
+.batchStyle { font-weight: 700; font-size: .86rem; overflow-wrap: anywhere; }
+.batchSub { font-size: .72rem; color: var(--dim); }
+.batchMeta { font-size: .72rem; color: var(--dim); }
+.batchTags { font-size: .68rem; color: var(--magenta); }
+.batchPrev { font-family: ui-monospace, monospace; font-size: .66rem; opacity: .55; max-height: 78px; overflow: hidden; margin: 4px 0; }
+.batchOps { display: flex; gap: 4px; margin-top: auto; padding-top: 6px; flex-wrap: wrap; }

@@ -12,9 +12,10 @@ python3 -m http.server 8080      # then open http://localhost:8080
 
 ```
 index.html          thin shell (loads ui/app.js as an ES module)
-data/               ~100 content pools, extracted VERBATIM from the legacy app
+data/               content pools, extracted VERBATIM from the legacy app
+                    (data/lyrics.js + data/presets.js are hand-curated)
 engine/             pure logic — no DOM anywhere
-ui/                 minimal DOM layer (app shell + manual-pick modal)
+ui/                 minimal DOM layer (app shell, manual-pick, batch, arc)
 tools/              extraction + optional single-file build
 tests/              headless test suite (node, jsdom optional)
 Tetech-main/        original app — the data source for extraction (read-only)
@@ -47,7 +48,38 @@ re-typed. Don't hand-edit these files; re-run the extractor.
   Scope = field / section / everything; mode = `random` or `max`
   (maximize score over N tries). This replaces the legacy Idea Engine,
   MORE MAGIC, MEGA BATCH, Anthem Builder and Genetic/Quantum Labs.
-* `share.js` — state ↔ URL-safe base64 (`?s=…` share links).
+* `state.js` — default state + the `ROLL_FN` roll table (which fields the
+  roll engine touches per scope, with lock/hide/flag gating in one place).
+* `harmony.js` — scale/key-aware **diatonic chord concretization**: roman
+  progressions (`i – VI – III – VII`) resolve to real chords in the chosen
+  root/scale (`Am – F – C – G`), with a full triad palette + roman labels
+  for the prompt.
+* `lyrics.js` — deterministic **lyric studio**: electronic (Verse/Drop),
+  organic (Verse/Chorus/Bridge) and rap (Rap Verse/Hook) song forms,
+  mood-lane word banks, a title/place slot system, singable syllable
+  discipline, per-section re-roll nonces and song-level couplet dedupe.
+* `batch.js` — **Batch Forge**: N candidates in one click, each scored
+  (compatibility/density/cohesion/arrangement/definition), fingerprinted
+  for distinctness, ranked best-first with state snapshots for loading.
+* `presets.js` — curated one-click **recipes** built on the same public
+  operations the buttons use (banger, vocal anthem, dubby, rap, lo-fi,
+  jazz-noir, cinematic, non-stop, peak-time, sound-lite, melodic, ambient).
+* `share.js` — state ↔ URL-safe base64 (`?s=…` share links, lyrics
+  included).
+
+### Studio features
+
+* **Vocals / Lyrics tab** — toggle the mic chip (or press `V`) to move
+  from instrumental safety to a full production: a casting tag
+  (7 vocal profiles), a section-tagged sheet, vocal-only policy and the
+  LYRICS block embedded in the Full Brief (hard-capped at 3000 chars,
+  production text gives way before lyrics). Re-roll the whole sheet or
+  one section, edit inline; your sheet survives share links.
+* **Batch Forge (G)** — generate 6/12/24 ranked prompts at once, plain or
+  MAX-each; load any candidate verbatim or borrow its style.
+* **Recipes bar** — one-click starting points with hovered ingredient lists.
+* **Energy arc visualizer** — the arrangement card renders the energy
+  curve and 20–100 value for every timecoded section.
 
 ### Modes
 
@@ -87,7 +119,7 @@ Both are first-class; the mode toggle sits in the header.
 
 ```
 npm start            # static server (or any other file server)
-npm test             # node tests/run.js — 140 checks, jsdom part optional
+npm test             # node tests/run.js — 560+ checks, jsdom UI part needs npm i
 npm run extract      # regenerate /data from Tetech-main/index.html
 npm run build        # optional single-file dist/index.html for sharing
 ```

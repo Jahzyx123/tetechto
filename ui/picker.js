@@ -7,7 +7,7 @@ import { PICKER_POOLS } from "../data/atoms.js";
 import { NOTE_NAMES, SCALES } from "../data/scales.js";
 /* Use the EXPANDED style pool (base + generated extra styles), not the
    verbatim data/styles.js, so every techno sub-style is pickable. */
-import { STYLES, allCombos, genreOfStyle } from "../engine/genre.js";
+import { STYLES, allCombos, genreOfStyle, canonStyleName } from "../engine/genre.js";
 import { scaleOf } from "../engine/music.js";
 
 const $ = sel => document.querySelector(sel);
@@ -31,9 +31,14 @@ export function openPicker(key, state, onChange) {
 
   let options, current, apply;
   if (entry.type === "style") {
-    options = state.techOnly ? STYLES.map(s => s.n) : allCombos();
+    /* canonical names: collapse the rare doubled-word expansion artifacts
+       ("Ultra Granular Granular Techno") at every surface, picker included */
+    options = state.techOnly
+      ? [...new Set(STYLES.map(x => canonStyleName(x.n)))]
+      : allCombos();
     current = state[entry.field];
     apply = v => {
+      v = canonStyleName(v);
       state[entry.field] = v;
       const g = state.techOnly ? "Techno" : genreOfStyle(v);
       if (entry.field === "primaryStyle") state.primaryGenre = g;

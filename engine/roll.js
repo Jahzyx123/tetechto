@@ -54,7 +54,7 @@ export function roll(state, scope, opts = {}) {
 /* Keys MAX must never touch: the style identity you already chose.
    Clicking MAX optimises the production around your genre, it does not
    swap the genre out from under you. */
-const IDENTITY_KEYS = ["primary", "secondary", "genre"];
+const IDENTITY_KEYS = ["primary", "secondary", "genre", "lyrics"];
 
 /* maximize-score-over-N-tries.
 

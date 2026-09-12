@@ -67,20 +67,46 @@ function pickClean(s, arr, get) {
   return v;
 }
 
+/* The generated expansion pool (data/styles-extra.js) contains a few
+   degenerate names where a modifier repeats the core word:
+   "Ultra Granular Granular Techno", "Proto Warehouse Warehouse Techno".
+   Collapse the adjacent duplicate AT PICK TIME so every surface — card,
+   prompt, share link — carries the same clean name and the pool on disk
+   stays untouched. Hyphenated words ("Tribal-Tribal X") are covered too. */
+export function canonStyleName(name) {
+  return String(name || "").trim()
+    .replace(/\b(\w+)((\s+|-\s*)\1\b)+/gi, "$1")
+    .replace(/\s{2,}/g, " ").trim();
+}
+
 export function pickStyle(s) {
   if (s.techOnly) {
-    if (s.equalChance) return pickClean(s, STYLES.map(x => x.n));
+    if (s.equalChance) return canonStyleName(pickClean(s, STYLES.map(x => x.n)));
     const cat = weirdCategory(s);
     const pool = STYLES_BY_CAT[cat];
-    if (!pool || !pool.length) return pickClean(s, STYLES.map(x => x.n));
-    return pickClean(s, pool);
+    if (!pool || !pool.length) return canonStyleName(pickClean(s, STYLES.map(x => x.n)));
+    return canonStyleName(pickClean(s, pool));
   }
-  return pickGenreCombo(s);
+  return canonStyleName(pickGenreCombo(s));
 }
 export function genreComboName(g, sub) {
   const st = sub.trim(), gn = g.n.trim();
-  if (st.toLowerCase() === gn.toLowerCase() || st.toLowerCase().endsWith(gn.toLowerCase())) return st;
-  return st + " " + gn;
+  if (st.toLowerCase() === gn.toLowerCase() || st.toLowerCase().endsWith(gn.toLowerCase())) return canonStyleName(st);
+  /* Avoid stacking an overlapping boundary word: "Percussive Carnatic" +
+     "Carnatic Fusion" -> "Percussive Carnatic Fusion" (not "...Carnatic
+     Carnatic..."). Only multi-word genres carry an overlap risk. */
+  const gWords = gn.split(/\s+/);
+  if (gWords.length > 1) {
+    const sWords = st.split(/\s+/);
+    const sLast = sWords[sWords.length - 1].toLowerCase();
+    const gFirst = gWords[0].toLowerCase();
+    /* whole-word overlap ("Percussive Carnatic" + "Carnatic Fusion") or a
+     hyphenated tail ("Post-Math" + "Math Rock" -> "Post-Math Rock") */
+    if (sLast === gFirst || sLast.endsWith("-" + gFirst)) {
+      return canonStyleName(st + " " + gWords.slice(1).join(" "));
+    }
+  }
+  return canonStyleName(st + " " + gn);
 }
 export function pickGenreCombo(s) { const g = pickClean(s, GENRES, x => x.n); return genreComboName(g, pickClean(s, g.subs)); }
 export function pickGenreComboOther(avoid, s) { let c = pickGenreCombo(s), g = 0; while (c === avoid && g++ < 8) { c = pickGenreCombo(s); } return c; }
@@ -101,6 +127,20 @@ export function pickGenreObjOther(s, avoidGenre) {
   /* the SUB needs filtering too: genre "House" is clean but its sub
      "Tribal House" is not */
   return { genre: g.n, combo: genreComboName(g, pickClean(s, g.subs)) };
+}
+/* Direct selection of a genre by name hint (used by presets): exact name
+   first, then case-insensitive substring. Returns the same {genre,combo}
+   shape as pickGenreObj, or null when no genre matches. */
+export function pickGenreHint(s, hint) {
+  const h = String(hint || "").toLowerCase().trim();
+  if (!h) return null;
+  const g = GENRES.find(x => x.n.toLowerCase() === h) ||
+    GENRES.find(x => x.n.toLowerCase().includes(h));
+  if (!g) return null;
+  return { genre: g.n, combo: genreComboName(g, pickClean(s, g.subs)) };
+}
+export function genreNameMatches(g, hint) {
+  return String(g || "").toLowerCase().includes(String(hint || "").toLowerCase().trim());
 }
 export function genreOfStyle(name) {
   const low = (name || "").toLowerCase(); if (!low) return "";

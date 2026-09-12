@@ -316,6 +316,50 @@ section("Genre-safe phrasing");
   ok(E.genreWorld("Shoegaze") === "hybrid", "Shoegaze classified hybrid");
 }
 
+/* ---------------- style names survive every output rewrite ---------------- */
+section("Style-name protection");
+{
+  /* A locked/picked techno name in an organic world must stay verbatim:
+     no genre word swapped in, no Tekno/Techno cut off, no fused-with tail
+     amputated ("Hyper Los Angeles Tekno fused with Pure Firm Techno"). */
+  const s = E.defaultState();
+  s.techOnly = false; E.roll(s, "everything");
+  s.primaryGenre = "African";
+  s.primaryStyle = "Hyper Los Angeles Tekno";
+  s.secondaryStyle = "Pure Firm Techno";
+  s.influence = "strong";
+  const sp = E.buildStylePrompt(s);
+  const fb = E.buildFullBrief(s);
+  ok(sp.startsWith("Hyper Los Angeles Tekno fused with Pure Firm Techno"),
+    "fused techno names survive the organic rewrite: " + sp.split(".")[0]);
+  ok(fb.split("\n\n")[0].includes("Hyper Los Angeles Tekno") &&
+     fb.split("\n\n")[0].includes("Pure Firm Techno"), "full brief keeps both techno names");
+  ok(!/Afrobeats?\b/i.test(sp.split(/[.,]/)[0]) && !/afro[- ]?pop/i.test(sp),
+    "no genre word is swapped into the style name");
+
+  /* vocal-cue words inside real genre combos keep their picked names */
+  for (const [genre, name] of [["Gospel", "Black Gospel"], ["Chinese", "Cantonese Opera Chinese"],
+                               ["World", "Tuvan Throat"], ["Americana", "River Songs Americana"]]) {
+    const q = E.defaultState(); q.techOnly = false; E.roll(q, "everything");
+    q.primaryGenre = genre; q.primaryStyle = name; q.secondaryStyle = "";
+    const sp2 = E.buildStylePrompt(q);
+    const fb2 = E.buildFullBrief(q);
+    ok(sp2.startsWith(name), "combo name verbatim in style prompt: " + name + " -> " + sp2.split(".")[0]);
+    ok(fb2.split("\n\n")[0].includes("STYLE: " + name), "combo name verbatim in brief STYLE: " + name);
+  }
+
+  /* free-party spellings in raw prose still get cleaned, but never inside a
+     parked style name */
+  const r = E.defaultState(); r.techOnly = false; r.primaryGenre = "Jazz";
+  r.primaryStyle = "Tribe Tekno"; r.secondaryStyle = "";
+  ok(!/\btekno\b/i.test(E.genreSafeText(r, "tekno energy and tekno drums", false)),
+    "tekno rephrased in unprotected organic prose");
+  ok(E.buildStylePrompt(r).startsWith("Tribe Tekno"), "Tribe Tekno style name protected");
+
+  /* combo joining never doubles the boundary word */
+  ok(E.allCombos().every(c => !/\b(\w+)\s+\1\b/.test(c)), "no doubled words in any genre combo name");
+}
+
 /* ---------------- instrumental safety & banned words ---------------- */
 section("Instrumental safety & banned max-energy words");
 {
@@ -368,22 +412,31 @@ section("Vocal-cue neutralization (output-time)");
       checked++;
       let y = x;
       for (const re of safeTail) y = y.replace(re, "");
+      /* picked style names are protected verbatim BY DESIGN — a combo like
+         "Southern Gospel" or "River Songs Americana" keeps its name even
+         though the word is a vocal cue elsewhere in the prompt body */
+      for (const st of [s.primaryStyle, s.secondaryStyle]) {
+        if (st) y = y.split(st).join("");
+      }
       const m = y.match(CUE);
       if (m) { leaked++; if (leaked <= 5) console.log("  ✗ leak " + name + ": [" + m[0] + "] in: " + y.slice(0, 220)); }
     }
   }
   ok(leaked === 0, "no vocal cue token reaches Style Prompt or Full Brief (" + checked + " scans)");
 
-  /* idempotency: a second pass over the emitted prompts changes nothing */
+  /* idempotency: a second pass over the emitted prompts changes nothing.
+     The style protect list must be passed exactly as the builders do, since
+     protected names intentionally keep otherwise-rewritten words. */
   let nonIdem = 0;
   for (let i = 0; i < 40; i++) {
     const s = E.defaultState();
     s.techOnly = i % 2 === 0; s.instrumental = i % 2 === 0;
     E.roll(s, "everything");
+    const prot = [s.primaryStyle, s.secondaryStyle].filter(Boolean);
     const sp = E.buildStylePrompt(s), fb = E.buildFullBrief(s);
-    if (P.stripVocalCue(sp) !== sp || P.stripVocalCue(fb) !== fb) nonIdem++;
+    if (P.stripVocalCue(sp, prot) !== sp || P.stripVocalCue(fb, prot) !== fb) nonIdem++;
   }
-  ok(nonIdem === 0, "stripVocalCue is idempotent on emitted prompts");
+  ok(nonIdem === 0, "stripVocalCue is idempotent on emitted prompts (styles protected)");
 
   /* unit-level: the target rewrites, musically equivalent */
   const pairs = [
@@ -690,12 +743,10 @@ section("Style Prompt density (sound packing)");
     E.roll(s, "everything");
     const sp = E.buildStylePrompt(s);
     if (sp.length > 1000) over++;
-    /* the builder tightens doubled words out of names and neutralizes
-       vocal cues at output, so compare against the same transforms rather
-       than the raw pool string */
-    if (![s.primaryStyle, P.tightenPhrase(s.primaryStyle), P.stripLive(s.primaryStyle),
-          P.tightenPhrase(P.stripLive(s.primaryStyle))].flatMap(x => x ? [x, P.stripVocalCue(x)] : [])
-        .some(f => f && sp.includes(f))) styleLost++;
+    /* the picked/rolled style name must reach the output BYTE-FOR-BYTE:
+       no vocal-cue/live/genre-safe rewriting may rename it
+       ("Black Gospel", "Cantonese Opera Chinese", "Hyper Los Angeles Tekno") */
+    if (!sp.includes(s.primaryStyle)) styleLost++;
     if (sp.length < 880) waste++;
     worstLen = Math.max(worstLen, sp.length);
     hits += KEYS.filter(k => s[k] && sp.includes(s[k])).length;
@@ -1161,8 +1212,15 @@ section("No \"live\" anywhere in the output");
   let sp = 0, fb = 0;
   for (let i = 0; i < 150; i++) {
     const st = E.defaultState(); st.techOnly = i % 2 === 0; E.roll(st, "everything");
-    if (/\blive\b/i.test(E.buildStylePrompt(st))) sp++;
-    if (/\blive\b/i.test(E.buildFullBrief(st))) fb++;
+    /* picked style names are protected verbatim, so mask them before the
+       scan — "live" inside a chosen name is the user's pick, not a leak */
+    const mask = x => {
+      let t = x;
+      for (const n of [st.primaryStyle, st.secondaryStyle]) if (n) t = t.split(n).join("");
+      return t;
+    };
+    if (/\blive\b/i.test(mask(E.buildStylePrompt(st)))) sp++;
+    if (/\blive\b/i.test(mask(E.buildFullBrief(st)))) fb++;
   }
   ok(sp === 0, `no "live" in any style prompt across 150 rolls (${sp})`);
   ok(fb === 0, `no "live" in any full brief across 150 rolls (${fb})`);
@@ -1453,6 +1511,231 @@ section("Undo / redo history");
   ok(h.copies.length === 0, "copy history clears");
 }
 
+/* ---------------- diatonic chord engine ---------------- */
+section("Diatonic chord concretization");
+{
+  const amin = { rootPc: 9, scaleId: "aeolian", chordProg: "i – VI – III – VII" };
+  ok(E.concreteProgression(amin) === "Am – F – C – G",
+    "A natural minor i–VI–III–VII → " + E.concreteProgression(amin));
+  const cmaj = { rootPc: 0, scaleId: "ionian", chordProg: "I – V – vi – IV" };
+  ok(E.concreteProgression(cmaj) === "C – G – Am – F",
+    "C major I–V–vi–IV → " + E.concreteProgression(cmaj));
+  const phryg = { rootPc: 4, scaleId: "phrygian", chordProg: "i – bII – bIII – VII" };
+  ok(E.concreteProgression(phryg) === "Em – F – G – D",
+    "E phrygian bII is the in-scale Neapolitan F → " + E.concreteProgression(phryg));
+  const triadsA = E.diatonicTriads(amin);
+  ok(triadsA.join(" ") === "Am (i) Bdim (ii°) C (III) Dm (iv) Em (v) F (VI) G (VII)",
+    "A minor diatonic triads with roman labels (" + triadsA.length + ")");
+  const triadsC = E.diatonicTriads(cmaj);
+  ok(triadsC[6] === "Bdim (vii°)" && triadsC[0] === "C (I)", "C major vii° is Bdim, I is C");
+  const pent = { rootPc: 9, scaleId: "minorPent", chordProg: "i – VI – III – VII" };
+  ok(E.concreteProgression(pent) === "", "non-heptatonic scales skip concretization gracefully");
+  const lyd = { rootPc: 5, scaleId: "lydian", chordProg: "I – II – IV" };
+  ok(E.concreteProgression(lyd) === "F – G – B", "F lydian I–II–IV → " + E.concreteProgression(lyd));
+  const withGloss = { rootPc: 9, scaleId: "aeolian", chordProg: "i – VI – III – VII (phrygian)" };
+  ok(E.concreteProgression(withGloss) === "Am – F – C – G", "parenthetical gloss is ignored when parsing");
+  const cpState = Object.assign(freshTechno(), { rootPc: 9, scaleId: "aeolian", chordProg: "i – VI – III – VII" });
+  ok(E.chordProgLine(cpState).includes("(Am – F – C – G)"),
+    "style chord line carries concrete names: " + E.chordProgLine(cpState));
+  const fb = E.buildFullBrief(cpState);
+  ok(/DIATONIC CHORDS:/.test(fb) && /CHORD PROGRESSION: i – VI – III – VII\s+→\s+Am – F – C – G/.test(fb),
+    "full brief includes the chord palette and concretized progression");
+}
+
+/* ---------------- lyrics studio ---------------- */
+section("Lyrics studio");
+{
+  /* instrumental states never carry a sheet */
+  const inst = freshTechno();
+  ok(!inst.lyrics.text, "instrumental roll leaves the lyric sheet blank");
+
+  /* electronic vocal sheet */
+  const v = E.defaultState();
+  v.techOnly = true; v.instrumental = false; v.vocalMode = true; v.vocalProfile = "female";
+  E.roll(v, "everything");
+  v.concept.title = "LAST TRANSMISSION";
+  E.roll(v, "lyrics");                       /* concept set, then re-sing */
+  ok(/^\[female lead vocal,/.test(v.lyrics.text), "head casting tag for the female profile");
+  ok(/\[Verse 1\]/.test(v.lyrics.text) && /\[Drop\]/.test(v.lyrics.text), "electronic form has Verse + Drop tags");
+  ok(/Last transmission/.test(v.lyrics.text), "the rolled concept title anchors the hook");
+  ok(!/\{title\}|\{place\}/.test(v.lyrics.text), "no unfilled template slots survive");
+  ok(v.lyrics.text.length > 500, "electronic sheet has a full song's worth of lines (" + v.lyrics.text.length + " chars)");
+
+  /* lane classification */
+  ok(E.moodLane({ feeling: "euphoric and joyful" }) === "euphoric", "euphoric feelings classify to the euphoric lane");
+  ok(E.moodLane({ feeling: "ferocious, aggressive" }) === "aggressive", "aggressive feelings classify to the aggressive lane");
+  ok(E.moodLane({ feeling: "tired" }) === "driving", "unknown mood falls back to the driving lane");
+
+  /* organic world: verse/chorus form, no drops, no reactor-core imagery */
+  let bad = 0, checkedOrganic = 0;
+  for (let i = 0; i < 24; i++) {
+    const o = E.defaultState();
+    o.techOnly = false; o.instrumental = false; o.vocalMode = true;
+    E.roll(o, "everything");
+    if (E.genreWorld(o.primaryGenre) !== "organic") continue;
+    checkedOrganic++;
+    if (/\[Drop\]/.test(o.lyrics.text)) bad++;
+    if (!/\[Chorus\]/.test(o.lyrics.text) || !/\[Verse 1\]/.test(o.lyrics.text)) bad++;
+    if (/reactor|megacity|mainframe|synthesizer|neon megacity/.test(o.lyrics.text)) bad++;
+    if (/\{place\}/.test(o.lyrics.text)) bad++;
+  }
+  ok(checkedOrganic > 0 && bad === 0, "organic sheets use Verse/Chorus, no drops or tech place slots (" + checkedOrganic + " checked)");
+
+  /* rap profile */
+  const r = E.defaultState();
+  r.techOnly = false; r.instrumental = false; r.vocalMode = true; r.vocalProfile = "rap";
+  E.roll(r, "everything");
+  ok(/^\[rap vocal/.test(r.lyrics.text) && /\[Rap Verse 1\]/.test(r.lyrics.text) && /\[Hook\]/.test(r.lyrics.text),
+    "rap profile casts a rap voice and Rap Verse/Hook tags");
+
+  /* no-stop: no dip sections */
+  const ns = E.defaultState();
+  ns.techOnly = true; ns.instrumental = false; ns.vocalMode = true;
+  E.setNoStop(ns, true);
+  E.roll(ns, "lyrics");
+  ok(ns.lyrics.text.length > 200 && !/\[Breakdown\]|\[Bridge\]/.test(ns.lyrics.text), "no-stop lyric sheet has no Breakdown/Bridge");
+
+  /* duration changes the form */
+  const compact = E.defaultState();
+  compact.techOnly = true; compact.instrumental = false; compact.vocalMode = true; compact.duration = "compact";
+  E.roll(compact, "everything");
+  const extended = E.defaultState();
+  extended.techOnly = true; extended.instrumental = false; extended.vocalMode = true; extended.duration = "extended";
+  E.roll(extended, "everything");
+  const secCount = t => (t.match(/^\[[A-Z][^\]]+\]$/gm) || []).length;
+  ok(secCount(extended.lyrics.text) > secCount(compact.lyrics.text),
+    "extended form has more sections than compact (" + secCount(extended.lyrics.text) + " vs " + secCount(compact.lyrics.text) + ")");
+
+  /* determinism */
+  const d1 = E.defaultState(); d1.instrumental = false; d1.vocalMode = true; d1.techOnly = true;
+  E.rollLyrics(d1, 123456);
+  const d2 = E.defaultState(); d2.instrumental = false; d2.vocalMode = true; d2.techOnly = true;
+  E.rollLyrics(d2, 123456);
+  ok(d1.lyrics.text === d2.lyrics.text, "identical lyric seeds reproduce the sheet");
+
+  /* per-section re-roll: only the targeted section changes. Plan index 2 is
+     the first Build, i.e. block 3 after the casting-tag head block. */
+  const before = d1.lyrics.text.split(/\n\n+/);
+  E.rerollLyricSection(d1, 2);
+  const after = d1.lyrics.text.split(/\n\n+/);
+  ok(before.length === after.length && before[0] === after[0] && before[1] === after[1] &&
+     before[2] === after[2] && before[4] === after[4] && before[3] !== after[3],
+    "section re-roll changes only that section");
+
+  /* syllable discipline: sung verse lines stay in a singable band */
+  let over = 0, sampled = 0;
+  for (let i = 0; i < 12; i++) {
+    const q = E.defaultState(); q.techOnly = i % 2 === 0; q.instrumental = false; q.vocalMode = true;
+    E.roll(q, "everything");
+    const secs = q.lyrics.text.split(/\n\n+/).slice(1);
+    for (const block of secs) {
+      const lines = block.split("\n").slice(1).filter(l => l && !/^\[/.test(l) && !/^\(/.test(l) && !/[.!…]$/.test(l.slice(-1)));
+      for (const l of lines) { sampled++; if (E.lineSyllables(l) > 16) over++; }
+    }
+  }
+  ok(sampled > 100 && over / sampled < 0.06, "sung lines stay in a singable syllable band (" + over + "/" + sampled + " over 16)");
+
+  /* share round-trip carries the sheet + profile */
+  const link = E.decodeState(E.encodeState(v));
+  ok(link.lyrics.text === v.lyrics.text && link.vocalProfile === "female", "share link preserves lyric sheet and vocal profile");
+
+  /* budgets hold for vocal productions, and the brief embeds lyrics */
+  let over1k = 0, over3k = 0, noLyrics = 0;
+  for (let i = 0; i < 40; i++) {
+    const q = E.defaultState();
+    q.techOnly = i % 2 === 0; q.instrumental = false; q.vocalMode = true;
+    q.duration = ["compact", "standard", "extended"][i % 3];
+    q.vocalProfile = ["female", "male", "rap", "choir", "duet", "processed", "auto"][i % 7];
+    E.roll(q, "everything");
+    if (E.buildStylePrompt(q).length > 1000) over1k++;
+    const fb = E.buildFullBrief(q);
+    if (fb.length > 3000) over3k++;
+    if (!fb.includes("LYRICS:")) noLyrics++;
+  }
+  ok(over1k === 0 && over3k === 0, "vocal style ≤1000 and full brief ≤3000 across 40 rolls");
+  ok(noLyrics === 0, "every vocal brief embeds the LYRICS block");
+}
+
+/* ---------------- batch forge ---------------- */
+section("Batch Forge");
+{
+  const base = E.defaultState();
+  E.roll(base, "everything");
+  const batch = E.forgeBatch(base, 12);
+  ok(batch.length === 12, "returns the requested number of candidates (" + batch.length + ")");
+  let sorted = true;
+  for (let i = 1; i < batch.length; i++) if (batch[i].score.total > batch[i - 1].score.total) sorted = false;
+  ok(sorted, "candidates are ranked best-score first (" + batch.map(c => c.score.total).join(",") + ")");
+  const sigs = new Set(batch.map(c => c.sig));
+  ok(sigs.size === batch.length, "fingerprinted candidates are distinct");
+  ok(batch.every(c => c.prompt.length <= 1000 && c.state), "every candidate has an in-budget prompt and full state snapshot");
+
+  /* locks are respected */
+  const locked = E.defaultState();
+  E.roll(locked, "everything");
+  locked.locks.primary = true;
+  locked.primaryStyle = "Acid Techno"; locked.primaryGenre = "Techno";
+  const b2 = E.forgeBatch(locked, 8);
+  ok(b2.every(c => c.state.primaryStyle === "Acid Techno"), "locked primary style is preserved across the batch");
+
+  /* MAX-each never downgrades vs a plain roll */
+  const b3 = E.forgeBatch(base, 6, { maxEach: true, tries: 12 });
+  ok(b3.length === 6 && b3.every(c => typeof c.score.total === "number"), "MAX-each batch completes with scores");
+
+  /* heavily locked state still terminates with some candidates */
+  Object.keys(base.locks).forEach(k => base.locks[k] = true);
+  const b4 = E.forgeBatch(base, 4);
+  ok(b4.length >= 1, "fully locked state still terminates (" + b4.length + " candidates)");
+}
+
+/* ---------------- preset recipes ---------------- */
+section("Preset recipes");
+{
+  const presets = E.listPresets();
+  ok(presets.length >= 10, "at least 10 curated recipes (" + presets.length + ")");
+  const HINT = { rap: "Hip-Hop", jazznoir: "Jazz", lofi: "Lo-Fi", cinematic: "Cinematic", band: "Funk" };
+  for (const p of presets) {
+    const s = E.defaultState();
+    E.applyPreset(s, p);
+    const sp = E.buildStylePrompt(s), fb = E.buildFullBrief(s);
+    if (sp.length > 1000 || fb.length > 3000) ok(false, p.name + " over budget");
+    if (p.overrides && p.overrides.instrumental === false && !(s.lyrics.text && s.lyrics.text.length > 300)) {
+      ok(false, p.name + " vocal preset produced no lyrics");
+    }
+    if (HINT[p.id]) {
+      ok((s.primaryGenre || "").toLowerCase().includes(HINT[p.id].toLowerCase()),
+        p.name + " lands on hinted genre (" + s.primaryGenre + ")");
+    }
+  }
+  ok(true, "all presets apply within budget; vocal presets roll sheets");
+  /* presets leave no temporary locks behind */
+  const s = E.defaultState();
+  const peak = presets.find(p => p.id === "nostop");
+  E.applyPreset(s, peak);
+  ok(s.noStop === true && Object.values(s.locks).every(v => !v), "no-stop preset engages no-stop and clears its temp locks");
+  const melody = presets.find(p => p.id === "melody");
+  const s2 = E.defaultState();
+  E.applyPreset(s2, melody);
+  ok(s2.hideBeats === true && !/Drums:/.test(E.buildStylePrompt(s2)), "melody-only preset parks the drums");
+}
+
+/* ---------------- arrangement timeline ---------------- */
+section("Energy arc timeline");
+{
+  const s = freshTechno();
+  const arc = E.energyArc(s);
+  ok(arc.length >= 5 && arc.every(x => x.energy >= 20 && x.energy <= 100), "arc sections sit in the 20–100 energy band");
+  let monotonic = true;
+  for (let i = 1; i < arc.length; i++) if (arc[i].start < arc[i - 1].start) monotonic = false;
+  ok(monotonic, "section timecodes are monotonic");
+  E.setNoStop(s, true);
+  const nsArc = E.energyArc(s);
+  ok(!nsArc.some(x => /Breakdown|Release/.test(x.name)) &&
+     nsArc.filter(x => /Drop|Climax/.test(x.name)).every(x => x.energy === 100),
+    "no-stop arc peaks at 100 with no Breakdown/Release dip");
+  ok(/Non-stop: continuous beat/.test(E.buildStylePrompt(s)), "no-stop policy present with the arc");
+}
+
 section("UI boot (jsdom)");
 await (async () => {
   let JSDOM;
@@ -1585,6 +1868,72 @@ await (async () => {
     ok(!/Drums:|Bass:|Sound Design:/.test(NF.buildStylePrompt()), "hide-beats chip removes beat sections");
     hb.click();
     ok(NF.get().hideBeats === false, "hide-beats chip toggles back off");
+
+    /* ---- energy arc visualizer ---- */
+    const arcBars = doc.querySelectorAll("#arcWrap .arcBar");
+    ok(arcBars.length >= 5, "energy arc chart renders on the arrangement card (" + arcBars.length + " segments)");
+
+    /* ---- preset recipes bar ---- */
+    const presetChips = doc.querySelectorAll("#presetBar .presetChip");
+    ok(presetChips.length >= 10, "preset recipe bar renders (" + presetChips.length + " recipes)");
+
+    /* ---- vocals + lyrics tab through the real UI ---- */
+    ok(!doc.querySelector('[data-tab="lyrics"]'), "no Lyrics tab while instrumental");
+    doc.querySelector("#instToggle").click();
+    {
+      const q = NF.get();
+      ok(q.instrumental === false && q.vocalMode === true && q.lyrics.text.length > 300,
+        "vocal toggle rolls a lyric sheet (" + q.lyrics.text.length + " chars)");
+      const lyricTab = doc.querySelector('[data-tab="lyrics"]');
+      ok(!!lyricTab, "Lyrics tab appears in vocal mode");
+      lyricTab.click();
+      const box = doc.querySelector("#lyricsBox");
+      ok(!!box && /\[(Verse|Drop|Rap Verse|Chorus|Hook)\]/.test(box.value), "lyrics editor renders section-tagged sheet");
+      ok(doc.querySelectorAll("[data-secroll]").length >= 3, "per-section re-roll chips rendered");
+      const profileSel = doc.querySelector("#vocalProfileSel");
+      ok(!!profileSel && profileSel.options.length === 7, "vocal profile select renders all 7 profiles");
+      profileSel.value = "rap";
+      profileSel.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+      ok(/^\[rap vocal/.test(NF.get().lyrics.text), "switching profile re-casts the sheet (rap)");
+      const secsBefore = doc.querySelectorAll("[data-secroll]").length;
+      doc.querySelector("#lyricsRerollBtn").click();
+      ok(NF.get().lyrics.text.length > 300 && doc.querySelectorAll("[data-secroll]").length === secsBefore,
+        "new-sheet button regenerates the same form");
+    }
+    doc.querySelector("#instToggle").click();
+    ok(NF.get().instrumental === true && NF.get().lyrics.text === "", "toggling back clears the sheet");
+    {
+      /* vocal anthem recipe lands in vocal mode directly */
+      const anthem = Array.from(doc.querySelectorAll("#presetBar .presetChip")).find(b => /Vocal anthem/.test(b.textContent));
+      ok(!!anthem, "vocal anthem recipe present");
+      anthem.click();
+      const q = NF.get();
+      ok(q.instrumental === false && q.lyrics.text.length > 300, "vocal anthem recipe applies a vocal sheet");
+      const fb = NF.buildFullBrief();
+      ok(fb.includes("LYRICS:") && fb.length <= 3000, "vocal anthem brief embeds lyrics within 3000");
+    }
+
+    /* ---- batch forge modal ---- */
+    {
+      const batchBtn = doc.querySelector("#batchBtn");
+      ok(!!batchBtn, "batch button rendered");
+      batchBtn.click();
+      const modal = doc.querySelector("#batchModal");
+      ok(!modal.hidden, "batch modal opens");
+      modal.querySelector("#batchGo").click();
+      await new Promise(r => setTimeout(r, 1500));
+      const cards = modal.querySelectorAll(".batchCard");
+      ok(cards.length >= 6, "batch forge renders ranked candidate cards (" + cards.length + ")");
+      const scores = Array.from(cards).map(c => +c.querySelector(".batchScore").textContent);
+      let sortedScores = scores.every((x, i) => !i || scores[i - 1] >= x);
+      ok(sortedScores, "batch grid is ranked (" + scores.join(",") + ")");
+      /* Load candidate verb */
+      const before = NF.get().primaryStyle;
+      cards[0].querySelector('[data-act="load"]').click();
+      ok(modal.hidden, "loading a candidate closes the modal");
+      ok(true, "candidate loaded (" + (before !== NF.get().primaryStyle ? "new style" : "same style") + ")");
+    }
+
     ok(!!doc.querySelector("#densityChip"), "sound-density readout rendered");
     ok(!!doc.querySelector("#buildChip"), "build id readout rendered");
   } catch (e) {

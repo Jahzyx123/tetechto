@@ -28,6 +28,7 @@ import { EXTRA_POOLS } from "../data/expansion.js";
 import { EXTRA_MELODY_CONCEPT, EXTRA_MELODY_POOLS } from "../data/melody-extra.js";
 import { ORGANIC_POOLS, HYBRID_POOLS } from "../data/acoustic.js";
 import { genreWorld } from "./world.js";
+import { rollLyrics } from "./lyrics.js";
 import * as DATA from "../data/index.js";
 import { newSeed, random, pick } from "./prng.js";
 import { scaleOf } from "./music.js";
@@ -274,12 +275,15 @@ export const NO_STOP_DIRECTION = ["unbroken forward charge", "relentless drive f
 ROLL_FN.primary = s => { s.primaryStyle = pickStyle(s); s.primaryGenre = s.techOnly ? "Techno" : genreOfStyle(s.primaryStyle); };
 ROLL_FN.secondary = s => { s.secondaryStyle = pickSecondary(s, s.primaryStyle); s.secondaryGenre = s.techOnly ? "Techno" : genreOfStyle(s.secondaryStyle); };
 ROLL_FN.genre = s => {
+  /* the composite genre roll respects the per-field locks too, so a locked
+     primary/secondary survives ROLL EVERYTHING (and Batch Forge) */
   if (s.techOnly) {
-    s.primaryStyle = pickStyle(s); s.primaryGenre = "Techno";
-    s.secondaryStyle = pickSecondary(s, s.primaryStyle); s.secondaryGenre = "Techno";
+    if (!s.locks.primary) { s.primaryStyle = pickStyle(s); s.primaryGenre = "Techno"; }
+    if (!s.locks.secondary) { s.secondaryStyle = pickSecondary(s, s.primaryStyle); s.secondaryGenre = "Techno"; }
   } else {
-    const p = pickGenreObj(s); s.primaryGenre = p.genre; s.primaryStyle = p.combo;
-    const q = pickGenreObjOther(s, p.genre); s.secondaryGenre = q.genre; s.secondaryStyle = q.combo;
+    let pg = s.primaryGenre;
+    if (!s.locks.primary) { const p = pickGenreObj(s); s.primaryGenre = p.genre; s.primaryStyle = p.combo; pg = p.genre; }
+    if (!s.locks.secondary) { const q = pickGenreObjOther(s, pg); s.secondaryGenre = q.genre; s.secondaryStyle = q.combo; }
   }
   if (!s.locks.bpm) s.bpm = tempoForGenre(s, s.primaryGenre, s.secondaryGenre);
 };
@@ -313,6 +317,16 @@ ROLL_FN["counter-relation"] = s => { s.counterMelodyRelation = pick(["supports",
 ROLL_FN["voice-concept"] = s => { if (s.noStop || s.hideBeats) { blankCounter(s); return; } s.voiceConcept = { voice: pick(poolFor(s, "bassVoice")), movement: pick(poolFor(s, "bassMovement")) }; };
 ROLL_FN["voice-relation"] = s => { s.voiceRelation = pick(["supports", "follows", "counters"]); };
 ROLL_FN.arrangement = s => { s.arrangement = s.noStop ? pickNoStopArrangement(s) : pickArrangementFor(s); };
+/* Lyrics Studio: blank while instrumental; a full section-tagged sheet
+   is rolled (from the global seeded stream, so it stays share-reproducible)
+   whenever vocals are on. */
+ROLL_FN.lyrics = s => {
+  s.lyrics = s.lyrics || { text: "", seed: 0, nonces: {}, edited: false };
+  /* vocals exist only when vocal mode is explicitly on (instrumental off
+     via the UI sets vocalMode in the same action) */
+  if (s.instrumental || !s.vocalMode) { s.lyrics.text = ""; s.lyrics.seed = 0; return; }
+  rollLyrics(s, (random() * 4294967296) >>> 0);
+};
 export const CONCEPT_KEYS = ["world", "location", "visual", "narrative", "sensation", "event", "conflict", "crowd", "title", "transform"];
 CONCEPT_KEYS.forEach(k => { ROLL_FN["concept-" + k] = s => { s.concept[k] = pick(CONCEPT[k]); }; });
 ["story", "role", "motion", "hook"].forEach(k => { ROLL_FN["melodyConcept-" + k] = s => { if (!s.melodyConcept) s.melodyConcept = {}; s.melodyConcept[k] = pick(MELODY_CONCEPT_POOL[k] || MELODY_CONCEPT[k]); }; });
@@ -408,6 +422,8 @@ export function defaultState() {
     concept: { world: "", location: "", visual: "", narrative: "", sensation: "", event: "", conflict: "", crowd: "", title: "", transform: "" },
     melodyConcept: { story: "", role: "", motion: "", hook: "" },
     arrangement: "",
+    vocalProfile: "auto",
+    lyrics: { text: "", seed: 0, nonces: {}, edited: false },
     instrumental: true, vocalMode: false,
     layers: {}, locks: defaultLocks(), hidden: defaultHidden(),
     weirdness: 50, influence: "balanced", duration: "standard", melodicForce: "balanced", slim: false, structure: false,

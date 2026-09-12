@@ -7,15 +7,19 @@
    - shareable state via ?s= URL param, deterministic per seed. */
 import { ATOMS, PICKER_POOLS } from "../data/atoms.js";
 import { LAYERS } from "../data/safety.js";
+import { VOCAL_PROFILES } from "../data/lyrics.js";
 import {
   defaultState, roll, buildStylePrompt, buildFullBrief, scorePrompt,
   encodeState, decodeState, setSeed, weirdMix,
-  SOUND_CARDS, unhideAllSoundCards, autoFitSounds, setSoundLite, setNoStop, setHideBeats, STYLE_STATS
+  SOUND_CARDS, unhideAllSoundCards, autoFitSounds, setSoundLite, setNoStop, setHideBeats, STYLE_STATS,
+  rollLyrics, rerollLyricSection, generateLyrics, applyPreset, listPresets
 } from "../engine/index.js";
 import { openPicker } from "./picker.js";
 import { History, bindUndoKeys } from "./history.js";
 import { Library, defaultName } from "./library.js";
 import { Compare } from "./compare.js";
+import { openBatch } from "./batch.js";
+import { arcHtml } from "./arc.js";
 import { BUILD } from "./version.js";
 
 /* ---------------------------- state ---------------------------- */
@@ -192,6 +196,49 @@ function toggleHideBeats() {
     : "🥁 Beats, bass & sounds restored");
 }
 
+/* 🎤 Instrumental ⇄ vocal: switching to vocal rolls a full section-tagged
+   lyric sheet (third output tab); switching back clears it and restores
+   the no-vocals safety policy. */
+function toggleInstrumental() {
+  state.instrumental = !state.instrumental;
+  state.vocalMode = !state.instrumental;
+  roll(state, "lyrics");
+  if (!state.instrumental) currentTab = "lyrics";
+  else if (currentTab === "lyrics") currentTab = "style";
+  commit("Vocal mode " + (state.instrumental ? "off" : "on"));
+  afterChange();
+  toast(state.instrumental
+    ? "🎧 Instrumental — no vocals, lyric sheet cleared"
+    : "🎤 Vocal sheet generated — third tab (Style / Brief / Lyrics)");
+}
+
+function rerollAllLyrics() {
+  rollLyrics(state);
+  commit("Re-roll lyrics");
+  afterChange();
+}
+
+/* 🎰 Batch Forge: N independent scored candidates in a modal grid. */
+function openBatchForge() {
+  openBatch(state, {
+    onLoad: snap => { applySnapshot(JSON.parse(JSON.stringify(snap))); commit("Load batch candidate"); toast("Loaded candidate"); },
+    onCopy: (text, label) => copyText(text, label),
+    onCompare: (slot, snap, prompt, score) => { compare.setSlot(slot, snap, prompt, score); showCompare = true; renderOutput(); toast("Candidate → slot " + slot.toUpperCase()); },
+    onSave: snap => {
+      const entry = library.add({ name: defaultName(snap), state: snap, prompt: buildStylePrompt(snap), score: scorePrompt(snap).total });
+      toast(entry ? "⭐ Saved “" + entry.name + "”" : "Could not save — storage full");
+    }
+  });
+}
+
+function applyRecipe(p) {
+  applyPreset(state, p);
+  currentTab = state.instrumental ? "style" : "lyrics";
+  commit("Preset " + p.name);
+  afterChange();
+  toast("🎚 Preset: " + p.name);
+}
+
 /* One-click "give me a combo with no techno in it": force No-Techno mode
    and roll a fresh genre + sub-style combo, whatever mode we were in. The
    combo pool is already techno-free, so switching modes is the whole job. */
@@ -221,6 +268,7 @@ function renderTopbar() {
     <button class="btn" id="noTechnoBtn" title="Switch to No-Techno and roll a fresh genre + sub-style combo (${STYLE_STATS.combos} combos, zero techno)">🚫 NO-TECHNO COMBO</button>
     <button class="btn primary" id="rollAllBtn" title="Roll every unlocked field (R)">🎲 ROLL EVERYTHING</button>
     <button class="btn" id="maxBtn" title="Reroll production N times keeping your primary/secondary style; re-click for another top-score variation">⭐ MAX</button>
+    <button class="btn" id="batchBtn" title="Batch Forge: roll N independent candidates, score and rank them in a grid (G)">🎰 BATCH</button>
     <span class="seg" id="undoSeg">
       <button id="undoBtn" title="Undo (Ctrl+Z)" ${history.canUndo() ? "" : "disabled"}>↩</button>
       <button id="redoBtn" title="Redo (Ctrl+Y)" ${history.canRedo() ? "" : "disabled"}>↪</button>
@@ -231,7 +279,7 @@ function renderTopbar() {
     </select>
     <label class="inline">Weird <input type="range" id="weirdRange" min="0" max="100" value="${state.weirdness}">
       <span class="readout"><b>${state.weirdness}</b> · core ${pct(m.core)}% / sub ${pct(m.sub)}% / rare ${pct(m.rare)}%</span></label>
-    <span class="chip ${state.instrumental ? "on" : ""}" id="instToggle" title="Keep every vocal reference out of the output">Instrumental</span>
+    <span class="chip ${state.instrumental ? "on" : "on-vocal"}" id="instToggle" title="${state.instrumental ? "Instrumental: strip every vocal cue (click to generate a sung lyric sheet)" : "Vocal mode: a [Section]-tagged lyric sheet is generated (click to go instrumental)"}">${state.instrumental ? "🎧 Instrumental" : "🎤 Vocals"}</span>
     <span class="chip ${state.equalChance ? "on" : ""}" id="eqToggle" title="Every style equally likely (ignores weirdness tiers)">Equal chance</span>
     <span class="chip ${state.noHandPerc ? "on" : ""}" id="handPercToggle" title="Remove tribal &amp; hand percussion, woodblocks, claps, shakers, stomps, jungle/breakbeat drums and trash-can / scrap-metal percussion from every roll">No hand-perc</span>
     <span class="chip ${state.styleFit ? "on" : ""}" id="fitToggle" title="Auto-hide electronic-only cards for organic genres">Style-fit</span>
@@ -265,8 +313,9 @@ function renderTopbar() {
   el.querySelector("#redoBtn").addEventListener("click", doRedo);
   el.querySelector("#rollAllBtn").addEventListener("click", () => doRoll("everything"));
   el.querySelector("#maxBtn").addEventListener("click", () => doRoll("everything", "max"));
+  el.querySelector("#batchBtn").addEventListener("click", openBatchForge);
   el.querySelector("#weirdRange").addEventListener("change", e => { state.weirdness = +e.target.value; commit("Weirdness " + state.weirdness); afterChange(); });
-  el.querySelector("#instToggle").addEventListener("click", () => { state.instrumental = !state.instrumental; commit("Instrumental " + (state.instrumental ? "on" : "off")); afterChange(); });
+  el.querySelector("#instToggle").addEventListener("click", () => toggleInstrumental());
   el.querySelector("#eqToggle").addEventListener("click", () => { state.equalChance = !state.equalChance; commit("Equal chance " + (state.equalChance ? "on" : "off")); afterChange(); });
   el.querySelector("#handPercToggle").addEventListener("click", () => {
     state.noHandPerc = !state.noHandPerc;
@@ -330,29 +379,79 @@ function cardHtml(def) {
       </span>
     </div>`;
   }).join("");
-  return `<div class="card ${hidden ? "hiddenCard" : ""}" id="${def.id}">${head}<div class="rows">${rows}</div></div>`;
+  const arc = def.id === "arrangementCard" ? `<div id="arcWrap">${arcHtml(state)}</div>` : "";
+  return `<div class="card ${hidden ? "hiddenCard" : ""}" id="${def.id}">${head}<div class="rows">${rows}</div>${arc}</div>`;
 }
 
 function renderCards() {
   $("#cards").innerHTML = CARD_DEFS.map(cardHtml).join("");
 }
 
+/* ---------------------------- preset recipes ---------------------------- */
+function renderPresetBar() {
+  const el = $("#presetBar");
+  if (!el) return;
+  el.innerHTML = `<span class="presetLab">Recipes</span>` + listPresets().map(p =>
+    `<button class="presetChip" data-preset="${p.id}" title="${escapeHtml(p.desc)}">${p.icon} ${escapeHtml(p.name)}</button>`
+  ).join("");
+  el.addEventListener("click", e => {
+    const b = e.target.closest("[data-preset]");
+    if (!b) return;
+    const p = listPresets().find(x => x.id === b.dataset.preset);
+    if (p) applyRecipe(p);
+  });
+}
+
 /* ---------------------------- output ---------------------------- */
 let currentTab = "style";
+function lyricsTagChips() {
+  /* one 🎲 chip per [Section] tag after the vocal-profile head line */
+  const lines = (state.lyrics && state.lyrics.text || "").split("\n");
+  const chips = [];
+  let n = -1;
+  for (const ln of lines) {
+    const m = ln.match(/^\[([^\]]+)\]$/);
+    if (!m) continue;
+    n++;
+    if (n === 0) continue;                       /* head casting tag */
+    chips.push(`<button class="btn small secRoll" data-secroll="${n - 1}" title="Re-roll just this section">🎲 ${escapeHtml(m[1])}</button>`);
+  }
+  return chips.join(" ");
+}
+function lyricsTabHtml() {
+  const ly = state.lyrics && state.lyrics.text || "";
+  const secCount = (ly.match(/^\[[^\]]+\]$/gm) || []).length - 1;
+  return `
+    <div id="lyricsBar">
+      <label class="inline">Voice
+        <select id="vocalProfileSel" title="Vocal casting Suno uses for the lyric sheet">
+          ${VOCAL_PROFILES.map(p => `<option value="${p.id}" ${state.vocalProfile === p.id ? "selected" : ""}>${p.label}</option>`).join("")}
+        </select>
+      </label>
+      <button class="btn small" id="lyricsRerollBtn" title="Roll a brand-new lyric sheet">🎲 New sheet</button>
+      <span class="readout">${Math.max(0, secCount)} sections · follows arrangement${state.noStop ? " · no-stop" : ""}</span>
+    </div>
+    <div id="secChips">${lyricsTagChips()}</div>
+    <textarea id="lyricsBox" spellcheck="false" title="Editable — Suno reads [Section] tags, (parentheses) read as backing vocals">${escapeHtml(ly)}</textarea>
+    <div class="readout" id="lyricsHint">Edit freely. [Verse]/[Chorus]/[Drop] tags steer structure, (parentheses) read as soft/backing vocals. The Full Brief embeds this sheet automatically.</div>`;
+}
 function renderOutput() {
   const host = $("#output");
   const sp = buildStylePrompt(state);
   const fb = buildFullBrief(state);
-  const text = currentTab === "style" ? sp : fb;
-  const cap = currentTab === "style" ? 1000 : 3000;
+  const ly = (!state.instrumental && state.lyrics && state.lyrics.text) ? state.lyrics.text : "";
+  if (currentTab === "lyrics" && state.instrumental) currentTab = "style";
+  const text = currentTab === "style" ? sp : currentTab === "brief" ? fb : ly;
+  const cap = currentTab === "style" ? 1000 : currentTab === "brief" ? 3000 : 0;
   const score = scorePrompt(state);
   host.innerHTML = `
     <div class="card">
       <div id="outTabs">
         <button data-tab="style" class="${currentTab === "style" ? "on" : ""}">Style Prompt</button>
         <button data-tab="brief" class="${currentTab === "brief" ? "on" : ""}">Full Brief</button>
+        ${!state.instrumental ? `<button data-tab="lyrics" class="${currentTab === "lyrics" ? "on" : ""}">🎤 Lyrics</button>` : ""}
       </div>
-      <div id="outbox">${escapeHtml(text)}</div>
+      ${currentTab === "lyrics" ? lyricsTabHtml() : `<div id="outbox">${escapeHtml(text)}</div>`}
       <div id="outmeta">
         <button class="btn small" id="copyOutBtn">📋 Copy</button>
         <button class="btn small" id="shareBtn">🔗 Share link</button>
@@ -360,7 +459,8 @@ function renderOutput() {
         <button class="btn small" id="dlBtn" title="Download as a .txt file">⬇ Download</button>
         <button class="btn small" id="toABtn" title="Send current prompt to compare slot A">A</button>
         <button class="btn small" id="toBBtn" title="Send current prompt to compare slot B">B</button>
-        <span id="charCount" class="${text.length > cap ? "warn" : ""}">${text.length} / ${cap}</span>
+        ${cap ? `<span id="charCount" class="${text.length > cap ? "warn" : ""}">${text.length} / ${cap}</span>`
+              : `<span id="charCount">${ly.length} chars · ${(ly.match(/^\[[^\]]+\]$/gm) || []).length - 1} sections</span>`}
         <span id="scoreChip" title="${score.items.map(i => i.label + " " + i.score).join(" · ")}">score ${score.total}</span>
       </div>
     </div>
@@ -378,7 +478,11 @@ function renderOutput() {
     const b = e.target.closest("button"); if (!b) return;
     currentTab = b.dataset.tab; renderOutput();
   });
-  host.querySelector("#copyOutBtn").addEventListener("click", () => copyText(text, currentTab === "style" ? "Style Prompt" : "Full Brief"));
+  host.querySelector("#copyOutBtn").addEventListener("click", () => copyText(text,
+    currentTab === "style" ? "Style Prompt" : currentTab === "brief" ? "Full Brief" : "Lyrics"));
+  if (currentTab === "lyrics") wireLyricsTab(host);
+  host.querySelector("#shareBtn").addEventListener("click", () =>
+    copyText(location.origin + location.pathname + "?s=" + encodeState(state), "Share link"));
   host.querySelector("#shareBtn").addEventListener("click", () =>
     copyText(location.origin + location.pathname + "?s=" + encodeState(state), "Share link"));
   host.querySelector("#saveLibBtn").addEventListener("click", saveToLibrary);
@@ -408,10 +512,11 @@ function saveToLibrary() {
 
 function downloadText(text) {
   const stamp = (state.primaryStyle || "neon-forge").replace(/[^\w-]+/g, "-").toLowerCase();
+  const suffix = currentTab === "style" ? "style-prompt" : currentTab === "brief" ? "full-brief" : "lyrics";
   const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = stamp + "-" + (currentTab === "style" ? "style-prompt" : "full-brief") + ".txt";
+  a.download = stamp + "-" + suffix + ".txt";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   toast("Downloaded");
@@ -422,6 +527,34 @@ function sendToCompare(slot) {
   showCompare = true;
   renderOutput();
   toast("Sent to slot " + slot.toUpperCase());
+}
+
+function wireLyricsTab(host) {
+  const box = host.querySelector("#lyricsBox");
+  if (!box) return;
+  box.addEventListener("input", () => {
+    state.lyrics.text = box.value;
+    state.lyrics.edited = true;
+    const cc = host.querySelector("#charCount");
+    if (cc) {
+      const secs = ((box.value || "").match(/^\[[^\]]+\]$/gm) || []).length - 1;
+      cc.textContent = box.value.length + " chars · " + secs + " sections";
+    }
+    updateURL();                       /* edits survive reload / sharing, no undo spam */
+  });
+  host.querySelector("#lyricsRerollBtn").addEventListener("click", rerollAllLyrics);
+  host.querySelector("#vocalProfileSel").addEventListener("change", e => {
+    state.vocalProfile = e.target.value;
+    rollLyrics(state);
+    commit("Vocal profile " + state.vocalProfile);
+    afterChange();
+  });
+  host.querySelectorAll("[data-secroll]").forEach(b => b.addEventListener("click", () => {
+    const i = +b.dataset.secroll;
+    rerollLyricSection(state, i);
+    commit("Re-roll lyric section " + (i + 1));
+    afterChange();
+  }));
 }
 
 function libraryHtml() {
@@ -605,6 +738,7 @@ function renderHistory() {
 }
 
 export function render() {
+  renderPresetBar();
   renderTopbar();
   renderCards();
   renderOutput();
@@ -631,6 +765,8 @@ function initEvents() {
     const k = (e.key || "").toLowerCase();
     if (k === "r") doRoll("everything");
     else if (k === "m") doRoll("everything", "max");
+    else if (k === "g") openBatchForge();
+    else if (k === "v") toggleInstrumental();
     else if (k === "l") { showLibrary = !showLibrary; renderOutput(); }
     else if (k === "c") { showCompare = !showCompare; renderOutput(); }
     else if (k === "s") { e.preventDefault(); saveToLibrary(); }
@@ -639,7 +775,8 @@ function initEvents() {
     else if (k === "b") toggleHideBeats();
     else if (k === "1") { currentTab = "style"; renderOutput(); }
     else if (k === "2") { currentTab = "brief"; renderOutput(); }
-    else if (k === "?") toast("R roll · M max · B hide-beats · H sound-lite · N no-stop · L library · C compare · S save · 1/2 tabs");
+    else if (k === "3" && !state.instrumental) { currentTab = "lyrics"; renderOutput(); }
+    else if (k === "?") toast("R roll · M max · G batch · V vocals · B hide-beats · H sound-lite · N no-stop · L library · C compare · S save · 1/2/3 tabs");
   });
 }
 
