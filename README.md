@@ -23,10 +23,71 @@ prompting rules changed, and every builder in this lab follows them:
 * **Front-load what matters.** v6 weighs early tags most, so every prompt
   leads with genre → influence → BPM → key before any detail.
 * **No bracket tags in the style box.** Brackets belong to the Lyrics
-  field — and v6 demonstrably *reads* them there. `sectionCues()` emits a
-  per-section performance skeleton (`[Drop | full groove lands, main
-  melody theme, 100% energy]`) derived from the rolled energy arc and the
-  state's own build/drop/riser/texture atoms.
+  field — and v6 demonstrably *reads* them there.
+* **Techno-first style-box shape.** The layer order follows the researched
+  formula: identity (genre/influence/BPM/key) → mood/energy → **drums →
+  bass** (the rhythm section IS techno's identity) → lead/harmony →
+  production/FX → positive policy tail.
+
+### How Suno 6 reads the Lyrics field (researched)
+
+The Lyrics box is a **structure field**, not a text field. What the lab
+learned and builds on:
+
+* Bracket **tags sit on their own line** and are recognized verbatim:
+  `[Intro] [Build] [Drop] [Breakdown] [Break] [Interlude] [Outro] [End]`,
+  plus `[Instrumental]` / `[Instrumental Break]`. No punctuation after
+  the tag. Unknown/custom tags are ignored — only established ones work.
+* A **parenthetical line under a tag** is read as direction + duration
+  hint: the `(8-bar instrumental)` pattern. Bar counts nudge section
+  length; descriptive words steer the performance (v6's launch-day test
+  famously rendered a whispered-French bridge that existed only as a
+  section cue).
+* **Blank lines between sections** help the parser; avoid `& @ #` and
+  quotation marks; commas and periods are fine.
+* Tags can carry inline descriptors (`[Chorus: full band, soaring]`), but
+  over-stacking (6+) creates competing instructions.
+* For a **fully instrumental track** (our default), keep the style-box
+  tail positive (`instrumental techno`) and put every negative in Exclude
+  Styles — do NOT write "no vocals" inline.
+
+The **Structure (Lyrics)** tab emits exactly this shape, derived from your
+rolled energy arc with real bar counts:
+
+```
+[Intro]
+
+(16-bar intro, hangar-bay air, juggernaut peak-time groove, groove sets in, melody waits)
+
+[Build]
+
+(16-bar build, drums tighten, energy rises to 68%, noise-driven build)
+
+[Drop]
+
+(32-bar drop, full groove lands, main melody theme, 100% energy)
+
+[Breakdown]
+
+(24-bar breakdown, energy dips to 52%, filters open, groove thins, melody keeps leading)
+
+[Build]
+
+(16-bar build, drums tighten, energy rises to 78%)
+
+[Climax]
+
+(32-bar climax, full groove lands, main melody theme, 100% energy)
+
+[Outro]
+
+(16-bar outro, groove keeps rolling, filter winds down, ends on the final pattern)
+
+[End]
+```
+
+No sung lyrics needed — it is a pure instrumental arrangement script that
+matches the style box (same groove/riser/drop atoms, same arc).
 * **NO-STOP and HIDE-BEATS went positive too.** Their policy lines state
   what should happen ("continuous beat, seamless section changes, ultra
   delivery"); the old negative lists live in the Exclude Styles block.
@@ -66,8 +127,9 @@ tools/legacy/       legacy build/engine/smoke scripts kept for reference
     genre/mood front-loaded, every free character densified into sounds;
   - `buildExcludeStyles()` → **Exclude Styles** field, mode-aware
     (instrumental / no-stop / hide-beats / no-hand-perc);
-  - `sectionCues()` → **Lyrics field** skeleton, `[Section | cue]` lines
-    that follow the rolled energy arc;
+  - `sectionCues()` → **Lyrics field** structure doc: bare `[Section]`
+    tags on their own lines, parenthetical bar-count + performance cues
+    below, `[End]` close — following the rolled energy arc;
   - `buildFullBrief()` → everything, ≤3000 chars, blocks field-routed;
   - `sanitize()`/`assemble()`/`densify()`/`stripVocalCue()` — the same
     priority-drop, clause-boundary-clamp, sound-packing and vocal-cue

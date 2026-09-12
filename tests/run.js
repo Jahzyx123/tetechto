@@ -384,7 +384,16 @@ section("SUNO 6.0 field routing (positive style box / exclude / cues)");
   ok(tagInBox === 0, "zero bracket tags in the style box (structure lives in the Lyrics skeleton)");
   ok(tailOk === 80, "positive tail correct in every mode (instrumental tag / vocal direction / none)");
   ok(exOk === 80, "Exclude Styles list matches the active modes");
-  ok(cuesOk === 80, "Lyrics skeleton emits valid [Section | cue] lines");
+  ok(cuesOk === 80, "structure doc emits recognized bare [Section] tags");
+  const sc0 = E.sectionCues(freshTechno());
+  ok(/^\[(Intro|Build|Rise)\]\n\n\(\d+-bar /m.test(sc0), "each tag sits on its own line with a parenthetical bar-hint cue below");
+  ok(/\[End\]$/.test(sc0), "structure doc closes with [End]");
+  ok(/\n\n\[/.test(sc0), "blank lines separate structure sections (v6 parse-friendly)");
+  ok(!/\|/.test(sc0), "no pipe syntax — cues are comma phrases in parentheses");
+  const sHB2 = freshTechno(); E.setHideBeats(sHB2, true); E.roll(sHB2, "everything");
+  const cuesHB = E.sectionCues(sHB2);
+  ok(!/drums tighten|full groove lands/.test(cuesHB) && /main melody theme/.test(cuesHB),
+    "hide-beats structure doc swaps drum words for melody words");
   ok(briefOk === 80, "Full Brief field-routes EXCLUDE STYLES + LYRICS SKELETON blocks");
 
   /* cues follow the energy arc: no-stop has no Breakdown, standard does */
@@ -407,6 +416,17 @@ section("SUNO 6.0 field routing (positive style box / exclude / cues)");
   const sc = E.scorePrompt(freshTechno());
   ok(sc.items.some(i => i.label === "Exclude hygiene"), "score includes Exclude hygiene (v6)");
   ok(sc.items.some(i => i.label === "Mood coherence"), "score includes Mood coherence (v6)");
+
+  /* SUNO 6 techno-first prompt shape: identity -> mood -> drums -> bass
+     -> lead/harmony -> production (order-of-appearance check) */
+  let shapeOk = 0;
+  for (let i = 0; i < 40; i++) {
+    const s = freshTechno(); E.roll(s, "everything");
+    const sp2 = E.buildStylePrompt(s);
+    const iEmo = sp2.search(/Emotion:/), iD = sp2.indexOf("Drums:"), iB = sp2.indexOf("Bass:"), iL = sp2.search(/Lead:|Melody-driven/);
+    if (iEmo > -1 && iD > iEmo && iB > iD && iL > iB) shapeOk++;
+  }
+  ok(shapeOk >= 38, "techno-first layer order holds (identity-emotion-drums-bass-lead): " + shapeOk + "/40");
 }
 
 

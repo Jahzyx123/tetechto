@@ -776,18 +776,18 @@ export function buildExcludeStyles(s) {
   return items.filter(x => !seen.has(x) && seen.add(x)).join(", ");
 }
 
-/* SUNO 6 SECTION CUES — per-section performance direction for the LYRICS
-   field. v6 reads cues inside "[Section | direction]" and uses them (a
-   launch-day track described a whispered French bridge that existed ONLY
-   as a section cue). The cue for each section is derived from the rolled
-   energy arc plus the state's own build/drop/riser/texture atoms, so the
-   skeleton always matches the rest of the brief. Deterministic per state,
-   idempotent under stripVocalCue, and safe in every mode: NO-STOP arcs
-   contain no Breakdown, HIDE-BEATS cues carry no drum words, and cue
-   atoms are cleaned exactly like the prose path (no "live", no banned
-   low-energy words, genre-safe wording in no-techno mode). Built for the
-   Lyrics field (5000-char cap), never for the style box — brackets there
-   are a documented anti-pattern. */
+/* SUNO 6 STRUCTURE DOC — how v6 reads the Lyrics field (researched):
+   bracket tags sit on their OWN line and are recognized verbatim
+   ([Intro] [Build] [Drop] [Breakdown] [Outro] [End], plus [Instrumental]
+   / [Instrumental Break]); a parenthetical line UNDER each tag is read
+   as direction + duration hint (the "(8-bar instrumental)" pattern);
+   blank lines between sections help the parser; no punctuation after
+   the tag, no special characters (& @ #). The skeleton is derived from
+   the rolled energy arc (real bar counts) plus the state's own
+   build/drop/riser/texture atoms, so it always matches the style box.
+   Techno-first: rhythm cue vocabulary, HIDE-BEATS swaps drum words for
+   melody words, NO-STOP arcs contain no Breakdown. Deterministic and
+   idempotent under stripVocalCue; atoms cleaned like the prose path. */
 export function sectionCues(s) {
   const arc = energyArc(s);
   const fit = v => {
@@ -796,6 +796,9 @@ export function sectionCues(s) {
     w = stripVocalCue(w);
     if (!s.techOnly) w = genreSafeText(s, w, true);
     w = tightenPhrase(w);
+    /* the doc supplies its own bar counts; pool atoms that carry
+       durations ("32-bar build") would clash with them */
+    if (/\d+\s*-?\s*bar\b/i.test(w)) return "";
     return isDirty(s, w.toLowerCase()) ? "" : w.trim();
   };
   const atm = fit(s.atmosphereType), gro = fit(s.groove);
@@ -805,19 +808,35 @@ export function sectionCues(s) {
   add(s.dropType); add(s.energyCurve); add(s.sectionDensity);
   const buildCue = fx.slice(0, 2).join(", ");
   const dropCue = [fit(s.dropType), gro].filter(Boolean).slice(0, 2).join(", ");
-  return arc.map(x => {
+  const hb = !!s.hideBeats;
+  const out = [];
+  arc.forEach(x => {
+    const noun = x.name.toLowerCase();
     let cue = "";
-    if (/^Intro$/i.test(x.name)) cue = [atm, gro].filter(Boolean).slice(0, 2).join(", ") + ", groove sets in, melody waits";
-    else if (/^(Build|Rise)$/i.test(x.name)) cue = ["drums tighten, energy rises to " + x.energy + "%", buildCue].filter(Boolean).join(", ");
-    else if (/^(Drop|Climax)$/i.test(x.name)) cue = ["full groove lands, main melody theme, " + x.energy + "% energy", dropCue].filter(Boolean).join(", ");
-    else if (/^(Breakdown|Release)$/i.test(x.name)) cue = ["energy dips to " + x.energy + "%, filters open, groove thins, melody keeps leading", atm].filter(Boolean).slice(0, 2).join(", ");
-    else if (/^Outro$/i.test(x.name)) cue = s.hideBeats
-      ? "melody pattern winds down, ends clean"
-      : "groove keeps rolling, filter winds down, ends on the final pattern";
-    return "[" + x.name + (cue ? " | " + cue : "") + "]";
-  }).join("\n");
+    if (/^Intro$/i.test(x.name)) cue = [x.bars + "-bar " + noun,
+      [atm, gro].filter(Boolean).slice(0, 2).join(", "),
+      hb ? "lead melody waits" : "groove sets in, melody waits"].filter(Boolean).join(", ");
+    else if (/^(Build|Rise)$/i.test(x.name)) cue = [x.bars + "-bar " + noun,
+      hb ? "energy rises to " + x.energy + "%" : "drums tighten, energy rises to " + x.energy + "%",
+      buildCue].filter(Boolean).join(", ");
+    else if (/^(Drop|Climax)$/i.test(x.name)) cue = [x.bars + "-bar " + noun,
+      hb ? "main melody theme, " + x.energy + "% energy"
+         : "full groove lands, main melody theme, " + x.energy + "% energy",
+      dropCue].filter(Boolean).join(", ");
+    else if (/^(Breakdown|Release)$/i.test(x.name)) cue = [x.bars + "-bar " + noun,
+      "energy dips to " + x.energy + "%",
+      hb ? "melody keeps leading, nothing extra enters"
+         : "filters open, groove thins, melody keeps leading",
+      atm].filter(Boolean).join(", ");
+    else if (/^Outro$/i.test(x.name)) cue = [x.bars + "-bar " + noun,
+      hb ? "melody pattern winds down, ends clean"
+         : "groove keeps rolling, filter winds down, ends on the final pattern"].join(", ");
+    if (!cue) return;
+    out.push("[" + x.name + "]", "", "(" + cue + ")", "");
+  });
+  out.push("[End]");
+  return out.join("\n");
 }
-
 /* Positive vocal statement for the Full Brief's policy section — the
    negatives travel in EXCLUDE STYLES, not here. */
 export function vocalLine(s) {
@@ -863,7 +882,14 @@ export function buildStylePrompt(state) {
   const blocks = [{ t: SLIM ? (s.primaryStyle + (s.secondaryStyle ? ", " + s.secondaryStyle : "") + flavor) : styleLine(s), required: true, priority: 1 }];
   if (s.noStop) blocks.push({ t: noStopLine(s, false), compact: noStopLine(s, true), required: true, priority: 1.5 });
   if (s.hideBeats) blocks.push({ t: hideBeatsLine(s, false), compact: hideBeatsLine(s, true), required: true, priority: 1.6 });
-  if (!s.hidden.feelCard) {
+  /* SUNO 6 PROMPT SHAPE — techno-first layer order (researched formula:
+     genre/identity -> mood/energy -> instrumentation -> production ->
+     policy). In techno the rhythm section IS the identity, so the drums
+     and bass come right after the mood layer and before the melodic
+     instruments; production and FX layers close the box, and the
+     positive policy tail is appended by the tail-safe clamp below. */
+  const HIDDEN_FEEL = !s.hidden.feelCard;
+  if (HIDDEN_FEEL) {
     blocks.push({
       t: SLIM ? "Emotion-led melody: " + s.feeling + ", " + s.flavor + "; " + s.direction : emotionLine(s),
       /* dense form: same information, none of the connective prose — the
@@ -871,6 +897,18 @@ export function buildStylePrompt(state) {
       compact: "Emotion: " + [s.feeling, s.flavor, s.direction].filter(Boolean).join(", "),
       required: true, priority: 2
     });
+  }
+
+  if (!s.hidden.drumsCard) blocks.push({ t: SLIM ? "Drums: " + s.kick + "; " + s.groove : drumLine(s), compact: drumLine(s, true), required: true, priority: 5 });
+  if (!s.hidden.bassCard) {
+    const vcl = voiceConceptLine(s);
+    const fullBass = bassLine(s) + (vcl ? ". " + vcl : "");
+    const compactBass = bassLine(s) + (vcl && s.voiceConcept && s.voiceConcept.voice ? ". Second line: " + s.voiceConcept.voice : "");
+    const denseBass = "Bass: " + [s.bassVoice, s.bassMovement, s.bassRel].filter(Boolean).join(", ")
+      + (s.voiceConcept && s.voiceConcept.voice ? ". Second line: " + s.voiceConcept.voice : "");
+    blocks.push({ t: SLIM ? "Bass: " + s.bassVoice + "; " + s.bassMovement : fullBass, compact: denseBass, required: true, priority: 4 });
+  }
+  if (HIDDEN_FEEL) {
     const cml = counterMelodyLine(s);
     const fullMelody = melodyLine(s) + (cml ? ". " + cml : "");
     const compactMelody = melodyLine(s) + (cml && s.counterMelody && s.counterMelody.voice ? ". Counter-melody: " + s.counterMelody.voice : "");
@@ -889,15 +927,6 @@ export function buildStylePrompt(state) {
     const mcl = melodyConceptLine(s, false);
     if (mcl) blocks.push({ t: mcl, compact: melodyConceptLine(s, true), required: false, priority: 6.5 });
   }
-  if (!s.hidden.bassCard) {
-    const vcl = voiceConceptLine(s);
-    const fullBass = bassLine(s) + (vcl ? ". " + vcl : "");
-    const compactBass = bassLine(s) + (vcl && s.voiceConcept && s.voiceConcept.voice ? ". Second line: " + s.voiceConcept.voice : "");
-    const denseBass = "Bass: " + [s.bassVoice, s.bassMovement, s.bassRel].filter(Boolean).join(", ")
-      + (s.voiceConcept && s.voiceConcept.voice ? ". Second line: " + s.voiceConcept.voice : "");
-    blocks.push({ t: SLIM ? "Bass: " + s.bassVoice + "; " + s.bassMovement : fullBass, compact: denseBass, required: true, priority: 4 });
-  }
-  if (!s.hidden.drumsCard) blocks.push({ t: SLIM ? "Drums: " + s.kick + "; " + s.groove : drumLine(s), compact: drumLine(s, true), required: true, priority: 5 });
   if (!s.hidden.technoLabCard) {
     const tl = technoLabLine(s, false);
     if (tl) blocks.push({ t: tl, compact: technoLabLine(s, true), required: false, priority: 5.5 });

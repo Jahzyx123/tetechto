@@ -4,7 +4,7 @@
    - per-section roll + hide
    - global ROLL (everything) and MAX (maximize score over N tries)
    - SUNO 6.0 output tabs, one per Suno field:
-     Style Prompt (≤1000) / Exclude Styles / Lyrics Skeleton / Full Brief
+     Style Prompt (≤1000) / Exclude Styles / Structure (Lyrics) / Full Brief
    - shareable state via ?s= URL param, deterministic per seed. */
 import { ATOMS, PICKER_POOLS } from "../data/atoms.js";
 import { LAYERS } from "../data/safety.js";
@@ -351,8 +351,8 @@ const TABS = [
     tip: "Paste into the Styles box (1000 chars, positive tags only)" },
   { id: "exclude", label: "Exclude Styles", cap: 1000, build: s => buildExcludeStyles(s),
     tip: "Paste into Suno 6's Exclude Styles field — never inline these in the style box" },
-  { id: "cues", label: "Lyrics Skeleton", cap: 5000, build: s => sectionCues(s),
-    tip: "Paste into the Lyrics field — v6 reads per-section performance cues" },
+  { id: "cues", label: "Structure (Lyrics)", cap: 5000, build: s => sectionCues(s),
+    tip: "Paste into the Lyrics field — bracket tags on their own line, parenthetical cues below (bar counts = duration hints), [End] closes; no sung lyrics needed" },
   { id: "brief", label: "Full Brief", cap: 3000, build: s => buildFullBrief(s),
     tip: "Everything, routed per Suno field" }
 ];
@@ -368,7 +368,7 @@ function renderOutput() {
         ${TABS.map(t => `<button data-tab="${t.id}" class="${t.id === tab.id ? "on" : ""}" title="${t.tip}">${t.label}</button>`).join("")}
       </div>
       <div id="outbox">${escapeHtml(text) || "Nothing to exclude yet — turn on Instrumental or a mode chip."}</div>
-      <div id="v6tips" title="Suno 6.0 launch-day findings">SUNO 6 — one tab per field · set Style Influence ≥ 70% (it ships at 50%) · judge BOTH takes of a generation</div>
+      <div id="v6tips" title="Suno 6.0 prompting rules">SUNO 6 — style box: positive tags, front-loaded · lyrics field: [tags] own line + (cues) below, [End] closes · negatives → Exclude Styles · Style Influence ≥ 70% · judge BOTH takes</div>
       <div id="outmeta">
         <button class="btn small" id="copyOutBtn">📋 Copy</button>
         <button class="btn small" id="shareBtn">🔗 Share link</button>
