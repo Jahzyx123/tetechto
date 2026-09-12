@@ -155,6 +155,53 @@ export function stripLive(v) {
   return t.replace(/\s+/g, " ").replace(/\s+([,.;:])/g, "$1").trim();
 }
 
+/* SUNO TOKEN HYGIENE — words that make Suno error out or silently
+   auto-replace with something else (user-reported: "crossfade", "tekno";
+   audited: trademarked gear and misspelled genre spellings). Every rule
+   keeps the musical meaning and is case-preserving + idempotent:
+   - tekno -> techno (the free-party scene spelling; Suno "corrects" it)
+   - crossfade(s/ding) -> blend(s/ing) (DJ-mixing jargon Suno mangles)
+   - Analog-Rytm / Rytm -> Rhythm (Elektron's stylized misspelling)
+   - MachineDrum -> Drum-Machine, Electribe -> Groovebox (trademarks)
+   - Korg / MS-20 filter prefixes -> dropped (brand-model strings)
+   - moog / Oberheim -> analog (classic-brand filters, generic wording)
+   - RD-6/7/8/9 -> 606/707/808/909 (Behringer clones of the classics)
+   - 727 (Roland Latin-percussion machine) -> Latin
+   - CR-78 -> vintage drum-machine, LXR-02 -> digital drum-machine
+   - TR-505 / TR-626 -> 505 / 626 (bare model numbers, like the 909s)
+   - Pioneer -> Pioneering (brand in style names)
+   - On2 -> On-Two (salsa timing token)
+   - " 2.0" style-name suffixes -> "Neo" / dropped (reads as "two point oh")
+   Runs at output time — the verbatim pools on disk are never edited. */
+export function fixSunoTokens(text) {
+  let t = String(text || "");
+  const cap1 = (m, c) => m[0] === m[0].toUpperCase() && m === m.toUpperCase()
+    ? c.toUpperCase()
+    : m[0] === m[0].toUpperCase()
+      ? c.charAt(0).toUpperCase() + c.slice(1) : c;
+  t = t.replace(/\btekno\b/gi, (m) => cap1(m, "techno"));
+  t = t.replace(/\bcrossfad(e|es|ed|ing)\b/gi, (m, s) =>
+    cap1(m, s === "e" ? "blend" : s === "es" ? "blends" : s === "ed" ? "blended" : "blending"));
+  t = t.replace(/\bRD-([6789])\b/g, (m, d) => ({ "6": "606", "7": "707", "8": "808", "9": "909" })[d]);
+  t = t.replace(/\b(?:TR-)?727\b/gi, "latin");
+  t = t.replace(/\bCR-78\b/gi, () => "vintage drum-machine");
+  t = t.replace(/\bLXR-02\b/gi, () => "digital drum-machine");
+  t = t.replace(/\bTR-(\d{3})\b/gi, "$1");
+  t = t.replace(/\bAnalog-Rytm\b/gi, (m) => cap1(m, "analog-rhythm"));
+  t = t.replace(/\bRytm\b/gi, (m) => cap1(m, "rhythm"));
+  t = t.replace(/\bMachineDrum\b/gi, (m) => cap1(m, "drum-machine"));
+  t = t.replace(/\bElectribe\b/gi, (m) => cap1(m, "groovebox"));
+  t = t.replace(/\b(Korg|MS-20)\s+(?=[a-z0-9])/gi, "");
+  t = t.replace(/\bmoog\b/gi, (m) => cap1(m, "analog"));
+  t = t.replace(/\bOberheim\b/gi, (m) => cap1(m, "analog"));
+  t = t.replace(/\bPioneer\b(?!ing)/g, "Pioneering");
+  t = t.replace(/\bOn2\b/g, "On-Two");
+  t = t.replace(/\b2\.0\s+(?=Techno\b)/g, (m) => "Neo ");
+  t = t.replace(/\b2\.0\s+(?=techno\b)/g, "neo ");
+  t = t.replace(/\s*2\.0\b/g, "");
+  return t.replace(/\s{2,}/g, " ").replace(/\s+([,.;:])/g, "$1").trim();
+}
+
 export function tightenPhrase(v) {
   let t = String(v || "");
   t = t.replace(new RegExp("\\b(" + FILLER + ")(\\s+(?:" + FILLER + "))+\\b", "gi"), "$1");
@@ -398,7 +445,7 @@ export function dropLabelNoun(label, v) {
 export function genreSafeBody(s, body) {
   if (s.techOnly) return genreSafeText(s, body, true);
   const forms = [s.primaryStyle, s.secondaryStyle].filter(Boolean)
-    .flatMap(x => [x, stripVocalCue(x)]);
+    .flatMap(x => [x, stripVocalCue(x), fixSunoTokens(x), fixSunoTokens(stripVocalCue(x))]);
   const esc = x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const ph = [];
   let t = String(body || "");
@@ -410,12 +457,14 @@ export function genreSafeBody(s, body) {
 }
 
 export function densify(s, body, budget) {
-  let out = body;
+  /* the body must be token-fixed BEFORE packing so the has() dedup
+     compares the exact forms that reach the final output */
+  let out = fixSunoTokens(body);
   /* In no-techno mode the body has already been genre-rewritten, so a raw
      pool value ("synth-driven hook") won't match its rewritten form
      ("driven hook") and would be packed in twice. Compare — and insert —
      the rewritten text. */
-  const fit = v => tightenPhrase(stripVocalCue(!s.techOnly ? genreSafeText(s, String(v), true) : String(v)));
+  const fit = v => fixSunoTokens(tightenPhrase(stripVocalCue(!s.techOnly ? genreSafeText(s, String(v), true) : String(v))));
   const has = v => out.toLowerCase().includes(String(v).toLowerCase());
 
   /* collect everything still missing, grouped, shortest-first.
@@ -529,6 +578,7 @@ function dropEmptyLabels(text) {
 }
 export function normalizePrompt(text) {
   let t = dropEmptyLabels(String(text || ""));
+  t = fixSunoTokens(t);
   t = stripLive(t);
   t = stripVocalCue(t);
   t = tightenPhrase(t);
@@ -796,6 +846,7 @@ export function sectionCues(s) {
     w = stripVocalCue(w);
     if (!s.techOnly) w = genreSafeText(s, w, true);
     w = tightenPhrase(w);
+    w = fixSunoTokens(w);
     /* the doc supplies its own bar counts; pool atoms that carry
        durations ("32-bar build") would clash with them */
     if (/\d+\s*-?\s*bar\b/i.test(w)) return "";
@@ -1119,7 +1170,7 @@ export function buildFullBrief(state) {
   ].filter(Boolean).join("\n\n");
   const cap = 3000 - (fieldsText ? fieldsText.length + 2 : 0);
   /* strip "live" before the cap so length accounting stays right */
-  let text = sec.map(x => stripVocalCue(stripLive(sanitize(s, x)))).filter(Boolean).join("\n\n");
+  let text = sec.map(x => fixSunoTokens(stripVocalCue(stripLive(sanitize(s, x))))).filter(Boolean).join("\n\n");
   if (text.length > cap) {
     const parts = text.split("\n\n");
     while (parts.length > 1 && parts.join("\n\n").length > cap) parts.pop();
@@ -1227,7 +1278,7 @@ export function scorePrompt(state) {
     for (const k of keys) {
       const v = s[k];
       if (!v || typeof v !== "string") continue;
-      const forms = [v, tightenPhrase(v), stripLive(v), stripVocalCue(tightenPhrase(v))];
+      const forms = [v, tightenPhrase(v), stripLive(v), stripVocalCue(tightenPhrase(v)), fixSunoTokens(tightenPhrase(stripLive(v)))];
       if (!s.techOnly) forms.push(tightenPhrase(genreSafeText(s, v, true)));
       const hit = forms.find(f => f && sp.includes(f));
       if (hit) { soundChars += hit.length; soundCount++; }

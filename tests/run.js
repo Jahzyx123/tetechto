@@ -84,7 +84,7 @@ section("Techno-only isolation");
     if (s.primaryStyle === s.secondaryStyle) distinct = false;
   }
   ok(D.STYLES.length >= 838, "verbatim techno pool intact at ≥838 styles (" + D.STYLES.length + ")");
-  ok(E.STYLES.length >= 3000, "expanded techno pool is ≥3000 styles (" + E.STYLES.length + ")");
+  ok(E.STYLES.length >= 5000, "expanded techno pool is ≥5000 styles (" + E.STYLES.length + ")");
   ok(allFromPool, "techno-only rolls come exclusively from the techno pool");
   ok(bpmOk, "techno tempo stays in the weighted 128–156 band (last " + s.bpm + ")");
   ok(distinct, "primary and secondary style never coincide");
@@ -528,6 +528,69 @@ section("Vocal-cue neutralization (output-time)");
   for (const keep of ["Songkran", "Songo", "Hooligan", "talking drum phrases", "breathless", "Breather", "humanized", "single note"]) {
     ok(P.stripVocalCue(keep) === keep, "non-vocal term untouched: " + keep);
   }
+}
+
+/* ---------------- SUNO token hygiene ---------------- */
+section("Suno token hygiene (no error/auto-replace tokens)");
+{
+  /* unit-level rewrites, musically equivalent */
+  const pairs = [
+    ["Free-Party Tekno", "Free-Party Techno"],
+    ["Tribe Tekno", "Tribe Techno"],
+    ["clean crossfade", "clean blend"],
+    ["molten crossfade drive", "molten blend drive"],
+    ["Analog-Rytm hats", "Analog-rhythm hats"],
+    ["anvil-heavy TR-505 kick", "anvil-heavy 505 kick"],
+    ["Korg resonant filter", "resonant filter"],
+    ["MS-20 howling filter", "howling filter"],
+    ["moog 24dB filter", "analog 24dB filter"],
+    ["Oberheim roaring filter", "Analog roaring filter"],
+    ["Electribe snare", "Groovebox snare"],
+    ["MachineDrum swing", "Drum-machine swing"],
+    ["Pioneer Maximum Techno", "Pioneering Maximum Techno"],
+    ["Pioneering Techno", "Pioneering Techno"],
+    ["On2", "On-Two"],
+    ["Hardgroove 2.0 Techno", "Hardgroove Neo Techno"],
+    ["Rave Stab Techno 2.0", "Rave Stab Techno"],
+    ["RD-9 kick", "909 kick"],
+    ["RD-8 snare", "808 snare"],
+    ["anvil-heavy 727 kick", "anvil-heavy latin kick"],
+    ["727 hats", "latin hats"],
+    ["CR-78 swing", "vintage drum-machine swing"],
+    ["LXR-02 toms", "digital drum-machine toms"]
+  ];
+  for (const [inp, want] of pairs) ok(P.fixSunoTokens(inp) === want,
+    `suno token rewritten: "${inp}" -> "${P.fixSunoTokens(inp)}"`);
+  ok(P.fixSunoTokens(P.fixSunoTokens("Tekno crossfade 2.0 TR-505 Rytm")) === P.fixSunoTokens("Tekno crossfade 2.0 TR-505 Rytm"),
+    "fixSunoTokens is idempotent");
+
+  /* end-to-end: no hostile token survives into ANY output */
+  const BAD = /\btekno\b|crossfad|\brytm\b|electribe|machinedrum|\bkorg\b|\bMS-20\b|\bmoog\b|oberheim|\bTR-\d{3}\b|\bRD-\d\b|\bLXR-02\b|\bCR-78\b|\b727\b|\bPioneer\b(?!ing)|\bOn2\b|\b2\.0\b/i;
+  let leaks = 0, checked = 0;
+  for (let i = 0; i < 120; i++) {
+    const s = E.defaultState();
+    s.techOnly = i % 2 === 0;
+    s.instrumental = i % 3 !== 0;
+    s.noStop = i % 5 === 0;
+    s.hideBeats = i % 7 === 3;
+    if (s.noStop) E.setNoStop(s, true);
+    if (s.hideBeats) E.setHideBeats(s, true);
+    E.roll(s, "everything");
+    const sp = E.buildStylePrompt(s), fb = E.buildFullBrief(s), cues = E.sectionCues(s);
+    checked++;
+    for (const [name, x] of [["sp", sp], ["fb", fb], ["cues", cues]]) {
+      const m = x.match(BAD);
+      if (m) { leaks++; if (leaks <= 3) console.log("  ✗ leak " + name + ": [" + m[0] + "]"); }
+    }
+  }
+  ok(leaks === 0, `no Suno-hostile token in any output across ${checked} rolls (${leaks} leaks)`);
+
+  /* the whole expanded pool is free of hostile tokens EXCEPT verbatim
+     names, which fixSunoTokens rewrites at output — verify the fix
+     covers every one of them */
+  const hostile = E.STYLES.filter(x => BAD.test(x.n));
+  ok(hostile.every(x => P.fixSunoTokens(x.n) !== x.n),
+    "every pool style carrying a hostile token is rewritten by fixSunoTokens (" + hostile.length + " verbatim carriers)");
 }
 
 /* ---------------- melody intensity (no simple/relax) ---------------- */
@@ -1410,7 +1473,8 @@ section("Style pool expansion");
     /* the builder tightens doubled words out of names and neutralizes
        vocal cues at output -- accept those forms too */
     const forms = [s.primaryStyle, alt].flatMap(x => x ?
-      [x, P.tightenPhrase(x), P.stripLive(x), P.tightenPhrase(P.stripLive(x)), P.stripVocalCue(x)] : []);
+      [x, P.tightenPhrase(x), P.stripLive(x), P.tightenPhrase(P.stripLive(x)), P.stripVocalCue(x),
+       P.fixSunoTokens(x), P.fixSunoTokens(P.stripLive(x))] : []);
     if (!forms.some(f => f && sp.includes(f))) lost++;
   }
   ok(lost === 0, "style name survives into every prompt across 200 rolls (" + lost + " lost)");

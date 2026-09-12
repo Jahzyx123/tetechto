@@ -62,7 +62,9 @@ const VOCAL_RE = /\b(vocal|vocals|voice|voices|sing|sings|singing|singer|choir|c
 const MOTION = [
   "Driving", "Rolling", "Pumping", "Bouncy", "Slamming", "Stomping", "Chugging",
   "Thumping", "Pounding", "Surging", "Sweeping", "Hustling", "Rumbling", "Galvanic",
-  "Relentless", "Charged", "Accelerating", "Pulsing", "Propulsive", "Firm", "Assured"
+  "Relentless", "Charged", "Accelerating", "Pulsing", "Propulsive", "Firm", "Assured",
+  "Hammering", "Grinding", "Gliding", "Charging", "Marching", "Heaving", "Barreling",
+  "Cascading", "Lurching", "Knocking", "Stampeding", "Sawing", "Cutting", "Warping"
 ];
 /* character: the mood / texture of the style */
 const CHARACTER = [
@@ -74,7 +76,10 @@ const CHARACTER = [
   "Cathedral", "Holographic", "Ghost", "Phantom", "Spectral", "Hollow", "Ritualistic",
   "Ceremonial", "Psychedelic", "Cosmic", "Astral", "Lunar", "Solar", "Gravitational",
   "Entropic", "Thermal", "Atmospheric", "Tectonic", "Abyssal", "Luminous", "Iridescent",
-  "Obsidian", "Basalt", "Tungsten", "Chromium", "Plasma", "Neutron", "Solarized"
+  "Obsidian", "Basalt", "Tungsten", "Chromium", "Plasma", "Neutron", "Solarized",
+  "Quarried", "Welded", "Rusted", "Oxidized", "Galvanized", "Ferrous", "Carbon",
+  "Graphite", "Titanium", "Marble", "Granite", "Volcanic", "Glacial", "Nocturnal",
+  "Cindered", "Mercury", "Quartz", "Umber", "Cobalt", "Nickel", "Zinc"
 ];
 /* scene: where the track belongs */
 const SCENE = [
@@ -83,28 +88,40 @@ const SCENE = [
   "Early-Morning", "Sunrise", "Golden-Hour", "Closing-Set", "Opening-Set", "Night-Drive",
   "Underground", "Berlin", "Detroit", "Chicago", "London", "Birmingham", "Leeds",
   "Rotterdam", "Amsterdam", "Frankfurt", "Paris", "Ibiza", "Tokyo", "Manchester",
-  "Belfast", "Glasgow", "NYC", "Los Angeles", "Barcelona", "Milan", "Prague", "Warsaw"
+  "Belfast", "Glasgow", "NYC", "Los Angeles", "Barcelona", "Milan", "Prague", "Warsaw",
+  "Lisbon", "Copenhagen", "Stockholm", "Oslo", "Helsinki", "Zurich", "Vienna",
+  "Brussels", "Turin", "Krakow", "Budapest", "Athens", "Istanbul", "Seoul",
+  "Shanghai", "Montreal", "Toronto", "Vancouver", "Dublin", "Bristol", "Cologne",
+  "Hamburg", "Tbilisi", "Cape-Town", "Sao-Paulo", "Mexico-City", "Melbourne"
 ];
 /* era / sound-design character */
 const TECH = [
   "Analog", "Modular", "909", "808", "303", "Hardware", "Sequencer", "Sampler",
   "Tape", "Vinyl", "Dubplate", "Drum-Machine", "Wavetable", "Granular", "FM",
   "Additive", "Rompler", "Outboard", "Console", "Patchbay", "Eurorack", "Bit-Crushed",
-  "Voltage", "Magnetic", "Stochastic", "Kinetik", "Oscillating", "Rotating", "Orbital"
+  "Voltage", "Magnetic", "Stochastic", "Kinetik", "Oscillating", "Rotating", "Orbital",
+  "Filtered", "Quantized", "Synced", "Overdriven", "Crushed", "Saturated", "Swung",
+  "Syncopated", "Polyrhythmic", "Hijacked", "Dubbed", "Layered", "Stacked"
 ];
 /* nouns: what the style IS */
+/* SUNO-SAFE NOUNS: no "Tekno"-style misspellings and no trademarked gear
+   names — Suno errors on or silently rewrites those (it auto-"corrects"
+   tekno and mangles brand tokens). Misspellings are also redundant at
+   output: fixSunoTokens() would collapse them into the same names. */
 const NOUNS = {
-  core: ["Techno", "Rave Techno", "Hardgroove", "Tekno"],
+  core: ["Techno", "Rave Techno", "Hardgroove", "Ghettotech"],
   sub: ["Techno", "Hard Techno", "Dub Techno", "Acid Techno", "Hardgroove", "Schranz",
         "Rave Techno", "Psy-Techno", "Trance-Techno", "Electro-Techno", "Breakbeat Techno",
-        "Jungle Techno", "Hi-Tech", "Tekno", "Free-Party Tekno", "Hardcore Techno",
+        "Jungle Techno", "Hi-Tech", "Speed Techno", "Free-Party Techno", "Hardcore Techno",
         "Industrial Techno", "EBM Techno", "Detroit Techno", "Berlin Techno",
-        "Bleep Techno", "Warehouse Techno"],
+        "Bleep Techno", "Warehouse Techno", "Hypnotic Techno", "Groove Techno"],
   rare: ["Techno", "Industrial Techno", "Schranz", "Bleep Techno", "Electro-Techno",
          "Rave Techno", "Hardcore Techno", "Drone Techno", "Ambient Techno",
          "Cinematic Techno", "Quantum Techno", "Granular Techno", "Microtonal Techno",
          "Collage Techno", "Cut-Up Techno", "Glitch Techno", "Noise Techno",
-         "Ritual Techno", "Occult Techno", "Spectral Techno", "Hologram Techno"]
+         "Ritual Techno", "Occult Techno", "Spectral Techno", "Hologram Techno",
+         "Fractal Techno", "Vector Techno", "Engine Techno", "Turbine Techno",
+         "Forge Techno", "Chrome Techno", "Cryo Techno", "Magma Techno"]
 };
 const PREFIX = {
   core: ["", "Classic", "Modern", "Pure", "Ultimate"],
@@ -134,7 +151,7 @@ const styleSeen = new Set(STYLES.map(s => s.n.toLowerCase()));
 styleSeen.add("techno");
 for (const tier of ["core", "sub", "rare"]) {
   const cand = shuffle(X(PREFIX[tier], FLAVOUR[tier], NOUNS[tier]));
-  const cap = tier === "core" ? 420 : tier === "sub" ? 840 : 1200;
+  const cap = tier === "core" ? 700 : tier === "sub" ? 1500 : 2300;
   let n = 0;
   for (const raw of cand) {
     const t = raw.replace(/\s+/g, " ").trim();
