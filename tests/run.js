@@ -359,44 +359,110 @@ section("Style-name protection");
   /* combo joining never doubles the boundary word */
   ok(E.allCombos().every(c => !/\b(\w+)\s+\1\b/.test(c)), "no doubled words in any genre combo name");
 
-  /* K-spelling: "Tekno" is a real free-party genre only in curated names;
-     the generator used it as a generic techno noun ("Pure Amsterdam
-     Tekno"), which must canonicalise to "Techno" */
+  /* K-spelling: EVERY bare "Tekno" canonicalises to "Techno" — generic
+     generator names AND free-party spellings ("Proto Ibiza Free-Party
+     Tekno"); Hardtek/Tribetek are different words and stay */
   const canonPairs = [
     ["Pure Amsterdam Tekno", "Pure Amsterdam Techno"],
     ["Hyper Los Angeles Tekno", "Hyper Los Angeles Techno"],
     ["Acid Tekno", "Acid Techno"],
     ["Classic Bouncy Tekno", "Classic Bouncy Techno"],
-    ["Free-Party Tekno", "Free-Party Tekno"],
-    ["Feral Free-Party Tekno", "Feral Free-Party Tekno"],
-    ["Tribe Maximum Tekno", "Tribe Maximum Tekno"],
-    ["Tekno", "Tekno"],
+    ["Proto Ibiza Free-Party Tekno", "Proto Ibiza Free-Party Techno"],
+    ["Feral Free-Party Tekno", "Feral Free-Party Techno"],
+    ["Tribe Maximum Tekno", "Tribe Maximum Techno"],
+    ["London Tekno", "London Techno"],
+    ["Tekno", "Techno"],
     ["Hardtek", "Hardtek"],
     ["Tribetek", "Tribetek"]
   ];
   for (const [inp, want] of canonPairs)
     ok(E.canonStyleName(inp) === want, "canonStyleName: " + inp + " -> " + E.canonStyleName(inp));
-  ok(!E.STYLES.some(x => /(^|\s)Tekno(\s|$)/.test(x.n) && !/(Free-Party|Tribe)( Maximum)? Tekno/.test(x.n)),
-    "assembled techno pool has no generic Tekno spellings");
+  ok(!E.STYLES.some(x => /\bTekno\b/.test(x.n)),
+    "assembled techno pool has no Tekno K-spellings at all");
   let teknoLeaks = 0;
   for (let i = 0; i < 200; i++) {
     const q = E.defaultState(); q.techOnly = true; E.roll(q, "everything");
     for (const n of [q.primaryStyle, q.secondaryStyle]) {
-      if (n && /(^|\s)Tekno(\s|$)/.test(n) && !/(Free-Party|Tribe)( Maximum)? Tekno/.test(n)) teknoLeaks++;
+      if (n && /\bTekno\b/.test(n)) teknoLeaks++;
     }
   }
-  ok(teknoLeaks === 0, "no generic Tekno spelling across 200 techno-only rolls");
+  ok(teknoLeaks === 0, "no Tekno K-spelling across 200 techno-only rolls");
 
   /* old share links carrying a pre-canon name migrate on decode */
   {
     const old = E.defaultState();
-    old.techOnly = true; old.primaryStyle = "Pure Amsterdam Tekno"; old.secondaryStyle = "";
+    old.techOnly = true; old.primaryStyle = "Proto Ibiza Free-Party Tekno"; old.secondaryStyle = "";
     const link = E.encodeState(old);
     const dec = E.decodeState(link);
     /* re-encode the legacy string manually so the test does not depend on
        the live encoder already canonicalizing */
     ok(E.canonStyleName("Pure Amsterdam Tekno") === "Pure Amsterdam Techno", "canon helper baseline");
-    ok(dec.primaryStyle === "Pure Amsterdam Techno", "legacy share link migrates Tekno -> Techno");
+    ok(dec.primaryStyle === "Proto Ibiza Free-Party Techno", "legacy share link migrates every Tekno -> Techno");
+  }
+}
+
+/* ---------------- skank scrub + chips: vox-line hide, melody first ---------------- */
+section("User word scrub & ordering chips");
+{
+  /* "skank" never reaches any output — it is a reggae off-beat chop and
+     that musical term is used instead */
+  ok(P.scrubWords("reggae skank groove") === "reggae off-beat chop groove", "skank -> off-beat chop");
+  ok(P.scrubWords("crisp offbeat skank") === "crisp off-beat chop", "offbeat skank -> off-beat chop (no doubling)");
+  ok(P.scrubWords("Skank") === "Off-beat chop", "capitalized skank keeps case");
+  let skankLeaks = 0;
+  for (let i = 0; i < 60; i++) {
+    const s = E.defaultState(); s.techOnly = false; E.roll(s, "everything");
+    s.groove = "reggae skank groove"; s.perc = "crisp offbeat skank";
+    if (/skank/i.test(E.buildStylePrompt(s)) || /skank/i.test(E.buildFullBrief(s))) skankLeaks++;
+  }
+  ok(skankLeaks === 0, "no 'skank' in 60 style prompts or briefs");
+
+  /* 📄 HIDE VOX-LINE: the instrumental policy line disappears and its
+     characters return to the sound pool */
+  const h = E.defaultState(); h.techOnly = true; h.hidePolicy = true; h.instrumental = true;
+  E.roll(h, "everything");
+  const spH = E.buildStylePrompt(h), fbH = E.buildFullBrief(h);
+  ok(!/no vocals|instrumental techno/.test(spH), "style prompt carries no instrumental policy line");
+  ok(!/VOCAL POLICY/.test(fbH), "full brief carries no VOCAL POLICY section");
+  ok(spH.length >= 900, "freed characters refill with sounds (" + spH.length + ")");
+  const h2 = E.defaultState(); h2.instrumental = false; h2.vocalMode = true; h2.hidePolicy = true;
+  E.roll(h2, "lyrics");
+  ok(/vocal:/.test(E.buildStylePrompt(h2)), "hide-policy never removes a vocal-mode direction");
+  const hLink = E.decodeState(E.encodeState(h));
+  ok(hLink.hidePolicy === true, "hidePolicy survives a share link");
+
+  /* 🎼 MELODY FIRST: style header, then melodic focus, diatonic chords,
+     emotion, lead, bass; drums last (and only if they fit) */
+  const order = [];
+  for (let i = 0; i < 40; i++) {
+    const m = E.defaultState(); m.techOnly = i % 2 === 0; m.melodyFirst = true;
+    m.melodicForce = ["balanced", "strong", "light", "dominant"][i % 4];
+    E.roll(m, "everything");
+    const sp = E.buildStylePrompt(m);
+    ok(sp.length <= 1000, "melody-first prompt within 1000 (" + sp.length + ")");
+    const P2 = re => { const x = sp.match(re); return x ? x.index : -1; };
+    const focus = P2(/(?:^|[.,] )melodic focus[: ]/i);
+    const chords = P2(/(?:^|[.,] )diatonic chords[: ]/i);
+    const emo = P2(/(?:^|[.,] )emotion[: ]/i);
+    const lead = P2(/(?:^|[.,] )(lead|melody[-\s](driven|dominant))[: ]/i);
+    const bass = P2(/(?:^|[.,] )bass[: ]/i);
+    const drums = P2(/(?:^|[.,] )drums[: ]/i);
+    if (!(focus > 0 && emo > focus && lead > emo && bass > lead)) order.push(i);
+    if (drums >= 0 && drums < bass) order.push("drums-first@" + i);
+    if (chords >= 0 && !(chords > focus && chords < emo)) order.push("chords@" + i);
+    /* no duplicated section labels from comma-merged clauses */
+    const labels = sp.match(/(?:^|[.,] )[A-Z][A-Za-z-]+(?=:)/g) || [];
+    if (labels.some((l, k) => labels.indexOf(l) !== k)) order.push("dup-label@" + i);
+  }
+  ok(order.length === 0, "melody-first ordering holds across 40 rolls (" + order.slice(0, 3) + ")");
+  const mLink = E.defaultState(); mLink.melodyFirst = true;
+  ok(E.decodeState(E.encodeState(mLink)).melodyFirst === true, "melodyFirst survives a share link");
+
+  /* toggle is compatible with no-stop and sound-lite without breaking caps */
+  for (const flags of [{ noStop: true }, { soundLite: true }, { hideBeats: true }]) {
+    const x = E.defaultState(); x.techOnly = true; x.melodyFirst = true; Object.assign(x, flags);
+    E.roll(x, "everything");
+    ok(E.buildStylePrompt(x).length <= 1000, "melody-first + " + Object.keys(flags)[0] + " within cap");
   }
 }
 
@@ -1973,6 +2039,38 @@ await (async () => {
       ok(modal.hidden, "loading a candidate closes the modal");
       ok(true, "candidate loaded (" + (before !== NF.get().primaryStyle ? "new style" : "same style") + ")");
     }
+
+    /* MELODY FIRST through the real chip */
+    const mf = doc.querySelector("#melodyFirstToggle");
+    ok(!!mf, "melody-first chip rendered");
+    mf.click();
+    {
+      const sp = NF.buildStylePrompt();
+      ok(NF.get().melodyFirst === true, "melody-first chip toggles on");
+      const P3 = re => { const m = sp.match(re); return m ? m.index : -1; };
+      const focus = P3(/(?:^|[.,] )melodic focus[: ]/i);
+      const emo = P3(/(?:^|[.,] )emotion[: ]/i);
+      const lead = P3(/(?:^|[.,] )(lead|melody[-\s](driven|dominant))[: ]/i);
+      const bass = P3(/(?:^|[.,] )bass[: ]/i);
+      const drums = P3(/(?:^|[.,] )drums[: ]/i);
+      ok(focus > 0 && emo > focus && lead > emo && bass > lead && (drums < 0 || drums > bass),
+        "melody-first orders music before drums (focus " + focus + " drums " + drums + ")");
+      ok(sp.length <= 1000, "melody-first prompt within cap");
+    }
+    mf.click();
+    ok(NF.get().melodyFirst === false, "melody-first chip toggles off");
+
+    /* HIDE VOX-LINE through the real chip (only rendered when instrumental) */
+    if (!NF.get().instrumental) doc.querySelector("#instToggle").click();
+    ok(NF.get().instrumental === true, "back in instrumental mode for the vox-line chip");
+    const hp = doc.querySelector("#hidePolicyToggle");
+    ok(!!hp, "hide-vox-line chip rendered while instrumental");
+    hp.click();
+    ok(NF.get().hidePolicy === true, "hide-vox-line chip toggles on");
+    ok(!/no vocals|instrumental techno/.test(NF.buildStylePrompt()), "policy line removed from style prompt");
+    ok(!/VOCAL POLICY/.test(NF.buildFullBrief()), "policy section removed from brief");
+    hp.click();
+    ok(NF.get().hidePolicy === false, "hide-vox-line chip toggles back off");
 
     ok(!!doc.querySelector("#densityChip"), "sound-density readout rendered");
     ok(!!doc.querySelector("#buildChip"), "build id readout rendered");

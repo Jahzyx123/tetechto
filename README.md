@@ -112,8 +112,24 @@ Both are first-class; the mode toggle sits in the header.
   policy in every prompt. Counter/second lines and every appearance cue
   (half-time, lazy, rolls, fills, drops, risers…) are hidden at roll
   time. Re-rolls stay no-stop until it's cleared.
+* **🎼 MELODY FIRST** (`J`) — reorders the Style Prompt so diatonic chords,
+  the melodic-focus line, emotion, melody/harmony and bass sit directly
+  under the style header; drums are packed last and only if the budget
+  has room (the full sound-design detail still fills leftover space).
+* **📄 HIDE VOX-LINE** (`P`, instrumental mode only) — removes the
+  `instrumental …, no vocals/lyrics/chants…` policy line from both
+  outputs and returns its characters to the sound pool.
 * **⭐ MAX** — now also offers 96× and 192× try counts for deeper
   hill-climbing; it still never downgrades and still keeps your style.
+
+Style-name fidelity: every output-time word rewrite parks the picked
+primary/secondary style names and restores them byte-for-byte (a genre
+name is never swapped mid-sentence), and the assembled pool is
+canonicalized — the K-spelling "Tekno" always renders "Techno"
+(including `Free-Party Tekno` → `Free-Party Techno`); Hardtek/Tribetek
+are separate words and stay. Words users asked out of outputs
+(e.g. "skank") are scrubbed at render time to the musical term
+("off-beat chop"), without touching the verbatim pools.
 
 ## Commands
 

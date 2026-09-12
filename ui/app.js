@@ -196,6 +196,29 @@ function toggleHideBeats() {
     : "🥁 Beats, bass & sounds restored");
 }
 
+/* 🎼 MELODY FIRST — music sections directly under the style header,
+   drums packed last and only if they fit. */
+function toggleMelodyFirst() {
+  state.melodyFirst = !state.melodyFirst;
+  commit("Melody-first " + (state.melodyFirst ? "on" : "off"));
+  afterChange();
+  toast(state.melodyFirst
+    ? "🎼 Chords, melody, harmony & bass first — drums last, if they fit"
+    : "🎼 Standard section order restored");
+}
+
+/* 📄 HIDE VOX-LINE — omit the instrumental "no vocals/lyrics…" policy
+   line so its characters return to the sound pool. Instrumental only;
+   the chip isn't rendered in vocal mode. */
+function toggleHidePolicy() {
+  state.hidePolicy = !state.hidePolicy;
+  commit("Vox-line " + (state.hidePolicy ? "hidden" : "shown"));
+  afterChange();
+  toast(state.hidePolicy
+    ? "📄 Instrumental policy line removed from both outputs"
+    : "📄 Instrumental policy line restored");
+}
+
 /* 🎤 Instrumental ⇄ vocal: switching to vocal rolls a full section-tagged
    lyric sheet (third output tab); switching back clears it and restores
    the no-vocals safety policy. */
@@ -286,6 +309,8 @@ function renderTopbar() {
     <span class="chip ${state.soundLite ? "on" : ""}" id="soundLiteToggle" title="Hide every sound-appearance section (delay, FX, mix, spatial, ensemble) so the Style Prompt fills with melody &amp; pattern; parked sounds are packed back ONLY if there is room left (H)">🔇 SOUND-LITE</span>
     <span class="chip ${state.noStop ? "on" : ""}" id="noStopToggle" title="Non-stop beat: no-break arrangement &amp; energy arc, no [Breakdown] tag, ultra delivery start-to-finish — and it hides the counter/2nd line plus every appearance section &amp; sound (half-time, lazy, samba rolls, fills, open-ride, drops, risers, Ensemble/Tone/Mix/Space/Texture/FX) (N)">⛓ NO-STOP</span>
     <span class="chip ${state.hideBeats ? "on" : ""}" id="hideBeatsToggle" title="Melody-only: remove all drums, beats, bass &amp; every sound-maker across the whole prompt — only the style, melody and pattern command text remains, so nothing extra appears in the song (B)">🥁 HIDE BEATS</span>
+    <span class="chip ${state.melodyFirst ? "on" : ""}" id="melodyFirstToggle" title="Order the Style Prompt music-first: diatonic chords, melodic focus, emotion, melody/harmony and bass directly after the style line; drums come last and only if they fit (J)">🎼 MELODY FIRST</span>
+    ${state.instrumental ? `<span class="chip ${state.hidePolicy ? "on" : ""}" id="hidePolicyToggle" title="Remove the 'instrumental, no vocals/lyrics/chants…' line from both outputs — its characters go back into the sound pool (P)">📄 HIDE VOX-LINE</span>` : ""}
     <span class="chip ${state.maxStyle ? "on" : ""}" id="maxStyleToggle" title="Let MAX also swap Primary/Secondary style for a higher-scoring combination — off by default, so MAX keeps your style">⭐ MAX STYLE</span>
     <span class="chip ${state.structure ? "on" : ""}" id="structToggle" title="Append [Intro][Build][Drop]… tags">Structure</span>
     <label class="inline">Influence <select id="influenceSel">
@@ -337,6 +362,9 @@ function renderTopbar() {
   el.querySelector("#soundLiteToggle").addEventListener("click", toggleSoundLite);
   el.querySelector("#noStopToggle").addEventListener("click", toggleNoStop);
   el.querySelector("#hideBeatsToggle").addEventListener("click", toggleHideBeats);
+  el.querySelector("#melodyFirstToggle").addEventListener("click", toggleMelodyFirst);
+  const policyBtn = el.querySelector("#hidePolicyToggle");
+  if (policyBtn) policyBtn.addEventListener("click", toggleHidePolicy);
   el.querySelector("#structToggle").addEventListener("click", () => { state.structure = !state.structure; commit("Structure " + (state.structure ? "on" : "off")); afterChange(); });
   el.querySelector("#maxStyleToggle").addEventListener("click", () => { state.maxStyle = !state.maxStyle; commit("MAX style " + (state.maxStyle ? "on" : "off")); afterChange(); });
   el.querySelector("#influenceSel").addEventListener("change", e => { state.influence = e.target.value; commit("Influence " + state.influence); afterChange(); });
@@ -773,10 +801,12 @@ function initEvents() {
     else if (k === "h") toggleSoundLite();
     else if (k === "n") toggleNoStop();
     else if (k === "b") toggleHideBeats();
+    else if (k === "j") toggleMelodyFirst();
+    else if (k === "p" && state.instrumental) toggleHidePolicy();
     else if (k === "1") { currentTab = "style"; renderOutput(); }
     else if (k === "2") { currentTab = "brief"; renderOutput(); }
     else if (k === "3" && !state.instrumental) { currentTab = "lyrics"; renderOutput(); }
-    else if (k === "?") toast("R roll · M max · G batch · V vocals · B hide-beats · H sound-lite · N no-stop · L library · C compare · S save · 1/2/3 tabs");
+    else if (k === "?") toast("R roll · M max · G batch · V vocals · B hide-beats · J melody-first · P hide vox-line · H sound-lite · N no-stop · L library · C compare · S save · 1/2/3 tabs");
   });
 }
 

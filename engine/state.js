@@ -430,6 +430,11 @@ export function defaultState() {
     acidAmt: 60, driveAmt: 75,
     styleFit: true, lastFitGenre: "", noHandPerc: false,
     soundLite: false, noStop: false, hideBeats: false,
+    /* hidePolicy: omit the instrumental "no vocals/lyrics…" line so its
+       characters return to the sound pool; melodyFirst: put chords,
+       melody, harmony & bass directly after the style header, drums last
+       (and only if they fit). */
+    hidePolicy: false, melodyFirst: false,
     maxStyle: false
   };
 }

@@ -389,6 +389,24 @@ export function stripVocalCue(text, protect) {
 }
 
 
+/* User-facing word scrub: pool phrases users asked to never see in a
+   prompt. "Skank" is the reggae off-beat guitar/keyboard chop, but the
+   word reads as slang; it is rendered with the musical term instead.
+   Like the other output-time rewriters, picked style names are parked
+   and pass through verbatim. Runs everywhere stripLive runs. */
+export function scrubWords(text, protect) {
+  const P = parkProtected(text, protect);
+  let t = P.t;
+  /* "crisp offbeat skank" -> "crisp off-beat chop" (avoid "offbeat off-beat") */
+  t = t.replace(/\boff[-\s]?beat\s+skanks?\b/gi, m =>
+    /skanks$/i.test(m) ? (/[A-Z]/.test(m[0]) ? "Off-beat chops" : "off-beat chops")
+                       : (/[A-Z]/.test(m[0]) ? "Off-beat chop" : "off-beat chop"));
+  t = t.replace(/\bskanking\b/gi, m => m[0] === "S" ? "Off-beat chopping" : "off-beat chopping");
+  t = t.replace(/\bskanks\b/gi, m => m[0] === "S" ? "Off-beat chops" : "off-beat chops");
+  t = t.replace(/\bskank\b/gi, m => m[0] === "S" ? "Off-beat chop" : "off-beat chop");
+  return P.restore(t.replace(/\s{2,}/g, " ").replace(/\s+([,.;:])/g, "$1").trim());
+}
+
 /* Inside a labelled clause the label already says what the sound is, so
    the noun repeated in every value is pure overhead: "Bass: searing FM
    bass, rolling octave bass line" -> "Bass: searing FM, rolling octave
@@ -415,7 +433,7 @@ export function densify(s, body, budget) {
      the rewritten text. */
   const fitProt = styleProtect(s);
   const fit = v => tightenPhrase(
-    stripVocalCue(!s.techOnly ? genreSafeText(s, String(v), true) : String(v), fitProt), fitProt);
+    scrubWords(stripVocalCue(!s.techOnly ? genreSafeText(s, String(v), true) : String(v), fitProt), fitProt), fitProt);
   const has = v => out.toLowerCase().includes(String(v).toLowerCase());
 
   /* collect everything still missing, grouped, shortest-first.
@@ -453,9 +471,20 @@ export function densify(s, body, budget) {
 
   const esc = x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   /* [^.] would stop at the decimal in "2.5s decay" and splice text into
-     the middle of a value; only treat ". " (period + space) as a break. */
-  const clauseRe = label => new RegExp("((?:^|\\. )" + esc(label) + ":(?:[^.]|\\.(?! ))*)", "i");
+     the middle of a value; only treat ". " (period + space) as a break.
+     A dropped dirty clause can also leave the next label after ", "
+     ("Emotion: a, b, Lead: …"), so accept a comma boundary when FINDING
+     the clause — the splice still stops at the next ". " break. */
+  const clauseRe = label => new RegExp("((?:^|[.,] )" + esc(label) + ":(?:[^.]|\\.(?! ))*)", "i");
   for (const g of groups) g.open = clauseRe(g.label).test(out);
+
+  /* MELODY FIRST: drum values are offered last, so when space is tight the
+     melodic sections deepen first and any surviving "Drums:" clause stays
+     at the tail — exactly the user-facing ordering of the chip. */
+  if (s.melodyFirst) {
+    const di = groups.findIndex(g => g.label === "Drums");
+    if (di >= 0) groups.push(groups.splice(di, 1)[0]);
+  }
 
   /* append `v` to g's clause (cheap: ", v") or start the clause (costly:
      ". Label: v"). Returns false if it wouldn't fit. */
@@ -531,6 +560,7 @@ export function normalizePrompt(text, protect) {
   let t = dropEmptyLabels(String(text || ""));
   t = stripLive(t, protect);
   t = stripVocalCue(t, protect);
+  t = scrubWords(t, protect);
   t = tightenPhrase(t, protect);
   t = t.replace(/\s+/g, " ").trim();
   t = t.replace(/(\.|,)\s*(?=\.|,)/g, ".").replace(/\.{2,}/g, ".");
@@ -741,12 +771,14 @@ export function layerLine(s) {
    roughly three more rolled sounds. The verbose SAFETY_LINE is still used
    in the Full Brief, where 3000 characters is never the binding limit. */
 export function vocalLineCompact(s) {
+  if (s.hidePolicy) return "";                    /* user hid the no-vocals line */
   const g = (!s.techOnly && s.primaryGenre && !/techno/i.test(s.primaryGenre))
     ? s.primaryGenre.toLowerCase() : "techno";
   return "instrumental " + g + ", no vocals/lyrics/chants/choir/spoken words";
 }
 export function vocalLine(s) {
   if (s.instrumental) {
+    if (s.hidePolicy) return "";
     if (s.techOnly) return SAFETY_LINE;
     const g = (s.primaryGenre && !/techno/i.test(s.primaryGenre)) ? s.primaryGenre : "instrumental";
     return "instrumental " + g.toLowerCase() + ", no vocals, no lyrics, no screaming, no chants, no choir, no spoken words";
@@ -867,6 +899,38 @@ export function buildStylePrompt(state) {
     if (tfl) blocks.push({ t: tfl, compact: textureFxLine(s, true), required: false, priority: 5.88 });
   }
   blocks.push({ t: layerLine(s), required: false, priority: 6 });
+
+  /* 🎼 MELODY FIRST: put chords, melodic focus, emotion, melody/harmony and
+     bass directly under the style header; drums come after the music and
+     only survive if the budget has room (they become droppable, like the
+     sound-appearance blocks). densify() then packs drum values last. */
+  if (s.melodyFirst && !s.hideBeats) {
+    const forceDesc = (s.melodicForce && s.melodicForce !== "balanced")
+      ? MELODY_FORCE[s.melodicForce].desc
+      : "melody leads, full melodic detail";
+    blocks.splice(1, 0, { t: "Melodic focus: " + forceDesc + ".", required: true, priority: 4.3 });
+    const triads = diatonicTriads(s);
+    if (triads.length) {
+      blocks.splice(2, 0, { t: "Diatonic chords: " + triads.join(", ") + ".", required: true, priority: 4.4 });
+    }
+    const styleBlock = blocks[0];
+    const rank = b => {
+      if (b === styleBlock) return 0;
+      const t = (b.t || "");
+      if (/^(Non-stop|Melody pattern)/i.test(t)) return 1;
+      if (/^Melodic focus/i.test(t)) return 2;
+      if (/^(Diatonic chords|Chord progression|Chords:)/i.test(t)) return 3;
+      if (/^Emotion/i.test(t)) return 4;
+      if (/^(Lead|Melody[-\s](driven|dominant))/i.test(t)) return 5;
+      if (/^Melody concept/i.test(t)) return 6;
+      if (/^Bass/i.test(t)) return 7;
+      if (/^Drums/i.test(t)) return 8;
+      return 9;
+    };
+    blocks.sort((a, b) => rank(a) - rank(b));
+    for (const b of blocks) if (/^Drums/i.test(b.t || "")) { b.required = false; b.priority = 4.0; }
+  }
+
   const TAGS = structTags(s);
   const tagCost = s.structure ? TAGS.length + 1 : 0;
   const flavorCost = (!s.techOnly && (SLIM || true)) ? (genreWorld(s.primaryGenre) === "organic" ? " — acoustic instrumentation".length : genreWorld(s.primaryGenre) === "hybrid" ? " — acoustic and electronic hybrid instrumentation".length : 0) : 0;
@@ -874,7 +938,7 @@ export function buildStylePrompt(state) {
      block system produces its compact, high-density forms, then densify()
      spends the reclaimed characters on rolled sounds that prose phrasing
      would have left out entirely. Net effect: many more sounds per 1000. */
-  const hardBudget = 1000 - (s.instrumental ? SAFETY_LINE.length + 2 : 20) - tagCost - flavorCost;
+  const hardBudget = 1000 - (s.instrumental && !s.hidePolicy ? SAFETY_LINE.length + 2 : 20) - tagCost - flavorCost;
   /* Never clamp below the required blocks' own compact length — the style,
      emotion, lead, bass and drum lines always survive intact. */
   const requiredLen = blocks.filter(b => b.required)
@@ -893,7 +957,9 @@ export function buildStylePrompt(state) {
   }
   body = body.replace(/[.\s]+$/, "");
   if (!/Bass:/.test(body) && !s.hidden.bassCard) body += ". " + bassLine(s);
-  if (!/Drums:/.test(body) && !s.hidden.drumsCard) body += ". " + drumLine(s, true);
+  /* MELODY FIRST: drums sit after the music and are packed only if they
+     fit, so the rescue append (which would force them back in) is off. */
+  if (!/Drums:/.test(body) && !s.hidden.drumsCard && !s.melodyFirst) body += ". " + drumLine(s, true);
   if (!s.noStop && !s.hideBeats && s.counterMelody && s.counterMelody.voice && !/Counter(-melody)?:/.test(body)) body += ". Counter: " + s.counterMelody.voice;
   if (!s.noStop && !s.hideBeats && s.voiceConcept && s.voiceConcept.voice && !/Second line:/.test(body)) body += ". 2nd: " + s.voiceConcept.voice;
   body = sanitize(s, body);
@@ -993,7 +1059,8 @@ export function buildFullBrief(state) {
   if (!s.hidden.arrangementCard && s.arrangement) sec.push("ARRANGEMENT: " + s.arrangement);
   sec.push("ENERGY ARC: " + arcLine(s) + ".");
   if (layers.length) sec.push("MIX & DETAIL: " + layers.map(l => l.phrase).join(", ") + ".");
-  sec.push("VOCAL POLICY: " + vocalLine(s) + ".");
+  const vpolLine = vocalLine(s);
+  if (vpolLine) sec.push("VOCAL POLICY: " + vpolLine + ".");
   /* strip "live" before the 3000-char cap so length accounting stays right.
      Production sections are fully sanitized/rewritten; the LYRICS block is
      appended AFTER those passes on purpose — lyrics are supposed to contain
@@ -1002,7 +1069,7 @@ export function buildFullBrief(state) {
      blank-line paragraph separators and fuses the sections together. */
   const briefProt = styleProtect(s);
   let text = sec.map(x => {
-    let y = stripVocalCue(stripLive(sanitize(s, x), briefProt), briefProt);
+    let y = scrubWords(stripVocalCue(stripLive(sanitize(s, x), briefProt), briefProt), briefProt);
     if (!s.techOnly) y = genreSafeText(s, y, true);   // style names protected
     return y;
   }).filter(Boolean).join("\n\n");
@@ -1105,7 +1172,8 @@ export function scorePrompt(state) {
     for (const k of keys) {
       const v = s[k];
       if (!v || typeof v !== "string") continue;
-      const forms = [v, tightenPhrase(v), stripLive(v), stripVocalCue(tightenPhrase(v))];
+      const forms = [v, tightenPhrase(v), stripLive(v),
+        scrubWords(stripVocalCue(tightenPhrase(v))), stripVocalCue(tightenPhrase(v))];
       if (!s.techOnly) forms.push(tightenPhrase(genreSafeText(s, v, true)));
       const hit = forms.find(f => f && sp.includes(f));
       if (hit) { soundChars += hit.length; soundCount++; }

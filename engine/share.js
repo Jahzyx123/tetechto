@@ -42,6 +42,7 @@ const MAP = {
   cm: "counterMelody", cmr: "counterMelodyRelation", vc: "voiceConcept", vr: "voiceRelation",
   slim: "slim", lfg: "lastFitGenre",
   slt: "soundLite", nst: "noStop", hbt: "hideBeats",
+  hpl: "hidePolicy", mlf: "melodyFirst",
   mx: "maxStyle", vp: "vocalProfile"
 };
 
