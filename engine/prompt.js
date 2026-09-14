@@ -10,6 +10,7 @@
    - buildFullBrief(): hard cap 3000 chars.
    All builders take the state object explicitly. */
 import { SAFETY_LINE, BANNED_MINIMAL, VOCAL_WORDS, LAYERS, VOCAL_DIRECTIONS } from "../data/safety.js";
+import { EXTRA_VOCAL_DIRECTIONS_W2 } from "../data/expansion2.js";
 import { hasHandPerc, NO_STOP_BAD_RE } from "./state.js";
 import { ARC_TEMPLATES } from "../data/concept.js";
 import { MELODY_FORCE } from "../data/scales.js";
@@ -17,6 +18,12 @@ import { COUNTER_ROLE, VOICE_ROLE } from "../data/atoms.js";
 import { pick } from "./prng.js";
 import { keyName, camelot, scaleOf, microOf } from "./music.js";
 import { genreWorld, genreSafeText } from "./world.js";
+
+/* Vocal direction wave two: the verbatim list plus the generated wave
+   (vocal words are intentional here — vocal mode is user-selected). */
+const _vdBase = VOCAL_DIRECTIONS.map(x => String(x).toLowerCase().trim());
+export const VOCAL_DIRECTIONS_ALL = VOCAL_DIRECTIONS.concat(
+  EXTRA_VOCAL_DIRECTIONS_W2.filter(x => !_vdBase.includes(String(x).toLowerCase().trim())));
 
 const VOCAL_RE = new RegExp("\\b(" + VOCAL_WORDS.join("|") + ")\\b", "i");
 export function hasVocalRef(text) { return VOCAL_RE.test(text); }
@@ -716,7 +723,7 @@ export function vocalLine(s) {
     const g = (s.primaryGenre && !/techno/i.test(s.primaryGenre)) ? s.primaryGenre : "instrumental";
     return "instrumental " + g.toLowerCase() + ", no vocals, no lyrics, no screaming, no chants, no choir, no spoken words";
   }
-  if (s.vocalMode) return "vocal: " + pick(VOCAL_DIRECTIONS);
+  if (s.vocalMode) return "vocal: " + pick(VOCAL_DIRECTIONS_ALL);
   return "";
 }
 export function structTags(s) {

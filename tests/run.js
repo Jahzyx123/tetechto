@@ -1703,6 +1703,109 @@ section("Hybrid sound vocabulary (full atom coverage)");
     "organic genres still resolve the organic pools");
 }
 
+/* ---------------- v4.4 concepts & sounds wave two ---------------- */
+section("Concepts wave two");
+{
+  const W2 = await import("../data/concept-extra2.js");
+  const banned = /\b(minimal|minimalist|sparse|restrained|low[- ]?energy|weak|tiny|gentle|quiet)\b/i;
+  const vocalRe = new RegExp("\\b(" + (D.VOCAL_WORDS || []).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b", "i");
+  let dirty = 0;
+  for (const k in W2.EXTRA_CONCEPT_W2) for (const v of W2.EXTRA_CONCEPT_W2[k]) {
+    if (banned.test(v) || vocalRe.test(v)) dirty++;
+  }
+  ok(dirty === 0, "wave-two concepts are banned-word- and vocal-free");
+  const floors = { world: 750, location: 650, visual: 630, narrative: 620, sensation: 560, event: 620, conflict: 530, crowd: 530, title: 720, transform: 560 };
+  let floorsOk = true; const sizes = [];
+  for (const k in floors) {
+    const n = (E.CONCEPT_POOL[k] || []).length;
+    sizes.push(k + ":" + n);
+    if (n < floors[k]) floorsOk = false;
+  }
+  ok(floorsOk, "every concept key reaches its wave-two floor (" + sizes.join(" ") + ")");
+  ok(E.CONCEPT_EXPANSION_STATS.added >= 6000,
+    "merged concept expansion counts both waves (+" + E.CONCEPT_EXPANSION_STATS.added + ")");
+  let dupes = 0;
+  for (const k in E.CONCEPT_POOL) {
+    const seen = new Set();
+    for (const v of E.CONCEPT_POOL[k]) {
+      const x = String(v).toLowerCase().trim();
+      if (seen.has(x)) dupes++;
+      seen.add(x);
+    }
+  }
+  ok(dupes === 0, "merged concept pools (verbatim + wave one + wave two) have zero duplicates");
+  /* rolls actually draw from the second wave */
+  const s = E.defaultState();
+  const w2set = new Set();
+  for (const k in W2.EXTRA_CONCEPT_W2) for (const v of W2.EXTRA_CONCEPT_W2[k]) w2set.add(k + "|" + v);
+  let w2Hits = 0;
+  for (let i = 0; i < 300; i++) {
+    E.roll(s, "concept");
+    for (const k in s.concept) if (s.concept[k] && w2set.has(k + "|" + s.concept[k])) w2Hits++;
+  }
+  ok(w2Hits > 300, "concept rolls draw heavily from wave two (" + w2Hits + "/3000 draws)");
+}
+
+section("Melody-concept wave two");
+{
+  const W2 = await import("../data/concept-extra2.js");
+  ok(E.MELODY_CONCEPT_POOL.story.length >= 300 && E.MELODY_CONCEPT_POOL.role.length >= 250 &&
+     E.MELODY_CONCEPT_POOL.motion.length >= 290 && E.MELODY_CONCEPT_POOL.hook.length >= 290,
+    "melody-concept pools reach wave-two sizes (story:" + E.MELODY_CONCEPT_POOL.story.length +
+    " role:" + E.MELODY_CONCEPT_POOL.role.length + " motion:" + E.MELODY_CONCEPT_POOL.motion.length +
+    " hook:" + E.MELODY_CONCEPT_POOL.hook.length + ")");
+  let relax = 0;
+  for (const k in W2.EXTRA_MELODY_CONCEPT_W2) {
+    for (const v of W2.EXTRA_MELODY_CONCEPT_W2[k]) if (E.isRelaxMelody(v)) relax++;
+  }
+  ok(relax === 0, "wave-two melody-concept lines survive the runtime relax filter");
+  let relaxMerged = 0;
+  for (const k in E.MELODY_CONCEPT_POOL) {
+    for (const v of E.MELODY_CONCEPT_POOL[k]) if (E.isRelaxMelody(v)) relaxMerged++;
+  }
+  ok(relaxMerged === 0, "merged melody-concept pools contain no relax-filter casualties");
+}
+
+section("Sounds wave two");
+{
+  const W2 = await import("../data/expansion2.js");
+  ok(E.EXPANSION_W2_STATS.pools >= 41 && E.EXPANSION_W2_STATS.added >= 1600,
+    "wave two tops up every thin pool (" + E.EXPANSION_W2_STATS.pools + " pools, +" + E.EXPANSION_W2_STATS.added + ")");
+  const minSize = Math.min(...Object.keys(E.POOL_OF).map(k => E.POOL_OF[k].length));
+  ok(minSize >= 85, "every sound atom pool holds ≥85 entries after wave two (min " + minSize + ")");
+  const banned = /\b(minimal|minimalist|sparse|restrained|low[- ]?energy|weak|tiny|gentle|quiet)\b/i;
+  const vocalRe = new RegExp("\\b(" + (D.VOCAL_WORDS || []).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b", "i");
+  let dirty = 0;
+  for (const name in W2.EXTRA_POOLS_W2) for (const v of W2.EXTRA_POOLS_W2[name]) {
+    if (banned.test(v) || vocalRe.test(v)) dirty++;
+  }
+  ok(dirty === 0, "wave-two sound entries are banned-word- and vocal-free");
+  let dupes = 0;
+  for (const k in E.POOL_OF) {
+    const seen = new Set();
+    for (const v of E.POOL_OF[k]) {
+      const x = String(v).toLowerCase().trim();
+      if (seen.has(x)) dupes++;
+      seen.add(x);
+    }
+  }
+  ok(dupes === 0, "merged sound pools (verbatim + wave one + wave two) have zero duplicates");
+  /* NO-STOP intensity & vocal direction micro-pools */
+  ok(E.NO_STOP_INTENSITY.length >= 28, "NO-STOP intensity pool reaches ≥28 (" + E.NO_STOP_INTENSITY.length + ")");
+  ok(E.NO_STOP_INTENSITY[0] === "unrelenting delivery", "verbatim NO-STOP intensities stay first");
+  ok(P.VOCAL_DIRECTIONS_ALL.length >= 55, "vocal direction pool reaches ≥55 (" + P.VOCAL_DIRECTIONS_ALL.length + ")");
+  ok(P.VOCAL_DIRECTIONS_ALL.slice(24).every(v => /vocal/i.test(v)),
+    "generated vocal directions all name the voice they direct");
+  /* prompt caps hold with all wave-two vocabulary in play */
+  const s = E.defaultState();
+  let over = 0;
+  for (let i = 0; i < 30; i++) {
+    E.roll(s, "everything");
+    if (E.buildStylePrompt(s).length > 1000 || E.buildFullBrief(s).length > 3000) over++;
+  }
+  ok(over === 0, "prompt caps hold across wave-two vocabulary (30 rolls)");
+}
+
 section("UI boot (jsdom)");
 await (async () => {
   let JSDOM;

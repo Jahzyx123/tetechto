@@ -10,6 +10,38 @@ Rebuilt from the legacy 600 KB single-file app into plain ES modules with
 python3 -m http.server 8080      # then open http://localhost:8080
 ```
 
+## What's new in v4.4 — concepts & sounds wave two
+
+The "concepts & sounds for everything that rolls" upgrade continues with a
+second wave on both fronts — every pool that still rolled thin is now deep.
+
+* **Concepts wave two** — a brand-new vocabulary pass
+  (`tools/expand-concepts2.js` → `data/concept-extra2.js`) adds **+2,270
+  concept entries** across all 10 keys, stacked on top of wave one with
+  zero collisions. Merged concept pools now hold: world 812 · title 763 ·
+  location 695 · visual 672 · narrative 658 · event 652 · sensation 584 ·
+  transform 582 · crowd 558 · conflict 557 (**6,733 total**, up from 4,263).
+* **Melody-concept wave two** — **+440 lines**: story 310 · motion 296 ·
+  hook 295 · role 259 (role was the thinnest concept pool left at 119).
+  All pre-filtered to survive the runtime relax check.
+* **Sounds wave two** — `tools/expand-sounds2.js` → `data/expansion2.js`
+  tops up every thin sonic pool: **41 pools, +1,639 entries**. After v4.1's
+  wave one left the smallest atom pools at 54–57 entries, two tiers of
+  wave-two vocabulary now lift **all 95 sound pools to ≥86 entries**.
+* **NO-STOP intensity ×5** — the ultra-delivery intensity line rolled from
+  6 verbatim entries; the generated wave brings it to **30**.
+* **Vocal directions ×2.5** — vocal-mode tracks rolled from 24 directions;
+  the generated wave brings the pool to **60** (vocal words are intentional
+  here — vocal mode is user-selected).
+* Inventory note: the two remaining roll-adjacent structures were checked
+  and correctly left alone — energy-arc templates are deterministic
+  structural data (no roll involved), and the legacy SPARK pools are
+  referenced nowhere in engine or UI.
+* Same guarantees as every prior wave: deterministic (seeded), banned-word
+  free, vocal-safe (except the vocal-direction pool, by design), world-safe
+  language, deduped against verbatim + wave one — which are never modified.
+  `npm run expand` regenerates all six generators.
+
 ## What's new in v4.3 — structures & hybrid sound vocabularies
 
 Continuing the "concepts & sounds for everything that rolls" upgrade into the
@@ -221,7 +253,7 @@ Both are first-class; the mode toggle sits in the header.
 
 ```
 npm start            # static server (or any other file server)
-npm test             # node tests/run.js — 612 checks incl. the jsdom UI boot
+npm test             # node tests/run.js — 629 checks incl. the jsdom UI boot
 npm run lint         # eslint flat config — zero errors is the bar
 npm run extract      # regenerate /data from Tetech-main/index.html
 npm run build        # optional single-file dist/index.html for sharing
