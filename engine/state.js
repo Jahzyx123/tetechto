@@ -37,6 +37,17 @@ import {
   _setHandPercPredicate
 } from "./genre.js";
 
+/* ---------------------------- FAST DEEP CLONE ----------------------------
+   One clone helper for the whole app. structuredClone is ~2x faster than
+   a JSON round-trip and it sits on the hot path: MAX at 192× clones the
+   full state once per try, and undo/library/compare snapshot on every
+   commit. JSON fallback keeps older runtimes working — app state is
+   JSON-safe by design (that is also what share links rely on). */
+export function clone(obj) {
+  if (typeof structuredClone === "function") return structuredClone(obj);
+  return JSON.parse(JSON.stringify(obj));
+}
+
 /* ---------------------------- ROLL FUNCTIONS ----------------------------
    One roll function per atom key. Special keys (style/combos/key/concepts)
    get bespoke logic; plain sound atoms get a generated one-liner. */

@@ -1,5 +1,7 @@
 # NEON FORGE
 
+[![CI](https://github.com/Jahzyx123/tetechto/actions/workflows/ci.yml/badge.svg)](https://github.com/Jahzyx123/tetechto/actions/workflows/ci.yml)
+
 Suno 5.5 prompt lab — techno-focused, but fluent in everything else.
 Rebuilt from the legacy 600 KB single-file app into plain ES modules with
 **zero install and no bundler**: any static file server runs it.
@@ -7,6 +9,48 @@ Rebuilt from the legacy 600 KB single-file app into plain ES modules with
 ```
 python3 -m http.server 8080      # then open http://localhost:8080
 ```
+
+## What's new in v4.1
+
+* **⚡ Batch Lab** (`G`) — the legacy MEGA BATCH idea rebuilt on the unified
+  engine. Roll 4–16 fully independent candidates from your current settings
+  (locks, chips and weirdness all carry over), scored and ranked best-first,
+  each with its full Style Prompt preview. One-click **Copy**, **Load**, or
+  send any candidate straight into **Compare A/B**. The live state is never
+  touched until you Load.
+* **Session autosave** — the whole state persists to `localStorage` shortly
+  after every change, and is restored when you return without a share link.
+  A pasted `?s=` URL always wins, so shared prompts are never clobbered.
+* **🆕 New** — clean-slate roll that keeps *your* setup (mode, weirdness,
+  toggles) but re-rolls everything and clears locks/hidden cards.
+* **PWA — installable & offline** — web manifest + app icon + service worker
+  (`sw.js`). Navigations are network-first, modules are
+  stale-while-revalidate, and `tools/stamp.js` bumps the SW cache version on
+  every deploy so offline users never run a mixed-generation app.
+
+## What's new in v4
+
+* **Accessibility pass** — every mode chip and detail-layer chip is a real
+  `<button>` with `aria-pressed`; every icon button (🎲 🔒 👁 ☰) exposes an
+  accessible name; toasts are an ARIA live region; the picker and the new
+  shortcuts dialog are proper `role="dialog"` modals with Escape support;
+  `:focus-visible` rings everywhere; `prefers-reduced-motion` respected.
+* **Keyboard shortcuts dialog** — press `?` (or the ⌨ KEYS button) for the
+  full cheat-sheet instead of a one-line toast.
+* **Collapsible cards** — ▾/▸ per card plus Collapse-all / Expand-all, so
+  the 15-section wall shrinks to what you're working on.
+* **Share-URL fix** — `?s=` now actually tracks the live state. (The custom
+  `History` class shadowed `window.history`, so `replaceState` threw
+  silently inside a `try/catch` and the URL froze at boot. Regression-tested.)
+* **Fast clone** — one `clone()` helper (structuredClone with JSON
+  fallback) replaces five ad-hoc `JSON.parse(JSON.stringify())` copies;
+  MAX at 192× is noticeably snappier.
+* **Focus preservation** — topbar controls keep keyboard focus across
+  re-renders.
+* **Tooling** — ESLint flat config (`npm run lint`, zero errors) and a
+  GitHub Actions CI pipeline (lint → test → dist build).
+* **Design pass** — richer dark-neon theme: glow gradients, card hover
+  depth, styled scrollbars, responsive layout.
 
 ## Layout
 
@@ -87,17 +131,31 @@ Both are first-class; the mode toggle sits in the header.
 
 ```
 npm start            # static server (or any other file server)
-npm test             # node tests/run.js — 140 checks, jsdom part optional
+npm test             # node tests/run.js — 577 checks incl. the jsdom UI boot
+npm run lint         # eslint flat config — zero errors is the bar
 npm run extract      # regenerate /data from Tetech-main/index.html
 npm run build        # optional single-file dist/index.html for sharing
 ```
 
-`npm i` is only needed for the jsdom UI-boot test; the app itself has no
-dependencies.
+`npm i` is only needed for the jsdom UI-boot test and ESLint; the app itself
+has no runtime dependencies.
+
+## Keyboard shortcuts
+
+| Key | Action |
+| --- | ------ |
+| `R` | Roll everything |
+| `M` | MAX — maximize score over N tries |
+| `B` / `H` / `N` | 🥁 Hide beats · 🔇 Sound-lite · ⛓ No-stop |
+| `L` / `C` / `S` | Library · A/B compare · save to library |
+| `1` / `2` | Style Prompt / Full Brief tab |
+| `?` | Shortcuts dialog |
+| `Esc` | Close any dialog |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
 
 ### Note on file sizes
 
-Every source module stays well under 150 KB (largest: `data/styles.js`,
-~74 KB). The optional `dist/index.html` is ~440 KB **by design** — it embeds
-all ~347 KB of verbatim pool data into one shareable file. The runtime app is
-the modular tree, not the dist file.
+Every source module stays well under 150 KB (largest: `data/expansion.js`,
+~9000 generated lines). The optional `dist/index.html` is ~1 MB **by design**
+— it embeds all ~800 KB of verbatim + generated pool data into one shareable
+file. The runtime app is the modular tree, not the dist file.

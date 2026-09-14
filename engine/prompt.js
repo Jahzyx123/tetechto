@@ -15,7 +15,7 @@ import { ARC_TEMPLATES } from "../data/concept.js";
 import { MELODY_FORCE } from "../data/scales.js";
 import { COUNTER_ROLE, VOICE_ROLE } from "../data/atoms.js";
 import { pick } from "./prng.js";
-import { keyName, camelot, scaleOf, microOf, freqOf, scaleNote } from "./music.js";
+import { keyName, camelot, scaleOf, microOf } from "./music.js";
 import { genreWorld, genreSafeText } from "./world.js";
 
 const VOCAL_RE = new RegExp("\\b(" + VOCAL_WORDS.join("|") + ")\\b", "i");
@@ -180,6 +180,8 @@ export function stripVocalCue(text) {
      must survive every rule below byte-for-byte. --- */
   const keep = [];
   const park = (m) => { keep.push(m); return "\u0001" + (keep.length - 1) + "\u0001"; };
+  /* \u0001 is a deliberate placeholder token the sanitizer parks/restores with. */
+  // eslint-disable-next-line no-control-regex
   const unPark = (x) => x.replace(/\u0001(\d+)\u0001/g, (m, i) => keep[+i] !== undefined ? keep[+i] : m);
   t = t.replace(/\bvocal:\s*[^.!?\n]*/gi, park);
   t = t.replace(/\bno\s+(?:vocals?|lyrics?|screaming|screams?|chants?|choirs?|spoken|shouts?|singing|songs?|verses?|choruses?)[^.!?\n]*/gi, park);
@@ -491,8 +493,8 @@ export function densify(s, body, budget) {
    label ("Emotion: Lead: ..."). Drop those empty labels. */
 function dropEmptyLabels(text) {
   return String(text || "")
-    .replace(/(^|\. )([A-Z][A-Za-z&\/\- ]{1,14}):\s*(?=[A-Z][A-Za-z&\/\- ]{1,14}:)/g, "$1")
-    .replace(/(^|\. )([A-Z][A-Za-z&\/\- ]{1,14}):\s*(?=\.|$)/g, "$1");
+    .replace(/(^|\. )([A-Z][A-Za-z&/\- ]{1,14}):\s*(?=[A-Z][A-Za-z&/\- ]{1,14}:)/g, "$1")
+    .replace(/(^|\. )([A-Z][A-Za-z&/\- ]{1,14}):\s*(?=\.|$)/g, "$1");
 }
 export function normalizePrompt(text) {
   let t = dropEmptyLabels(String(text || ""));
@@ -762,7 +764,6 @@ export function buildStylePrompt(state) {
     });
     const cml = counterMelodyLine(s);
     const fullMelody = melodyLine(s) + (cml ? ". " + cml : "");
-    const compactMelody = melodyLine(s) + (cml && s.counterMelody && s.counterMelody.voice ? ". Counter-melody: " + s.counterMelody.voice : "");
     /* Dense form never re-adds the instrument under HIDE-BEATS: the block
        stays pure pattern text even when assemble() compacts it. */
     const denseMelody = s.hideBeats
@@ -781,7 +782,6 @@ export function buildStylePrompt(state) {
   if (!s.hidden.bassCard) {
     const vcl = voiceConceptLine(s);
     const fullBass = bassLine(s) + (vcl ? ". " + vcl : "");
-    const compactBass = bassLine(s) + (vcl && s.voiceConcept && s.voiceConcept.voice ? ". Second line: " + s.voiceConcept.voice : "");
     const denseBass = "Bass: " + [s.bassVoice, s.bassMovement, s.bassRel].filter(Boolean).join(", ")
       + (s.voiceConcept && s.voiceConcept.voice ? ". Second line: " + s.voiceConcept.voice : "");
     blocks.push({ t: SLIM ? "Bass: " + s.bassVoice + "; " + s.bassMovement : fullBass, compact: denseBass, required: true, priority: 4 });

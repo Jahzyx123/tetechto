@@ -158,6 +158,8 @@ export function genreSafeText(s, text, protectStyles) {
   t = t.replace(/,\s*,/g, ",");
   t = t.replace(/[,.;]\s*[,.;]+/g, ".");
   t = t.replace(/^\s*[,.;:\s]+|\s*[,.;:\s]+$/g, "");
+  /* \u0001 is the deliberate park/restore placeholder token, not stray data. */
+  // eslint-disable-next-line no-control-regex
   if (ph.length) t = t.replace(/\u0001(\d+)\u0001/g, (m, i) => ph[+i]);
   return t.trim();
 }

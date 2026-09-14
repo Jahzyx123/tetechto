@@ -1,0 +1,15 @@
+{
+  "name": "NEON FORGE — Suno prompt lab",
+  "short_name": "NEON FORGE",
+  "description": "Techno-focused Suno prompt lab: roll, MAX-optimize, batch, compare and save prompts. Works offline.",
+  "id": "./",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#06070c",
+  "theme_color": "#06070c",
+  "icons": [
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

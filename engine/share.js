@@ -66,5 +66,5 @@ export function decodeState(str) {
     if (m.lk) { s.locks = defaultLocks(); Object.assign(s.locks, m.lk); }
     if (m.hd) { s.hidden = defaultHidden(); Object.assign(s.hidden, m.hd); }
     return s;
-  } catch (e) { return null; }
+  } catch { return null; }
 }

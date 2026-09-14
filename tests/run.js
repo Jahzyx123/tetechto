@@ -209,7 +209,7 @@ section("Unified roll(scope, mode) engine");
   ok(typeof res3.score === "number" && frozen === JSON.stringify({ k: s.kick, p: s.primaryStyle, b: s.bpm }), "fully-locked maximize returns without changing state");
   Object.keys(s.locks).forEach(k => s.locks[k] = false);
   let threw = false;
-  try { E.roll(s, "nonsense-scope"); } catch (e) { threw = true; }
+  try { E.roll(s, "nonsense-scope"); } catch { threw = true; }
   ok(threw, "unknown scope throws instead of silently no-oping");
 }
 
@@ -348,7 +348,6 @@ section("Vocal-cue neutralization (output-time)");
      breathing, breathes, breathe, breathed, breathy, breath-like). */
   const CUE = /\b(?:hoovers?|hum(?:s|ming|med)?|songs?|hymns?|psalms?|gospel\w*|operas?\b|operatic|throat\w*|tenors?|alto\b|baritones?|sopranos?|croon\w*|sing(?:s|ing|er|ers|able)?\b|chorus(?:es)?\b|verses?|choirs?\b|choral|chants?\b|lullab(?:y|ies)\b|doo-?wops?|whistl\w*|sighs?|call[\s-]+and[\s-]+response|voices?\b|vocals?\b|breath(?:ing|ed|y|s|like)?\b|crowds?\b|shout\w*|scream\w*|whisper\w*|cheers?\b|arias?|words?)\b/i;
   const safeTail = [/\bwithout any movement words\b/];
-  const tail = (t, re) => t.replace(re, "\u0000");
   let leaked = 0, checked = 0;
   for (let i = 0; i < 80; i++) {
     const s = E.defaultState();
@@ -439,7 +438,6 @@ section("Vocal-cue neutralization (output-time)");
 /* ---------------- melody intensity (no simple/relax) ---------------- */
 section("Melody intensity (no simple/relax)");
 {
-  const SOFT = E.MELODY_SOFT_RE, INTENSE = E.MELODY_INTENSE_RE;
   /* every generated extra survives the runtime relax filter */
   let genDropped = 0;
   for (const k in EXTRA_MELODY_CONCEPT)
@@ -722,7 +720,7 @@ section("Style Prompt density (sound packing)");
   ok(!E.hasVocalRef(noPolicy2), "packed prompt stays instrumental-safe");
   const clauses = sp2.split(/\.\s+/).map(c => c.trim()).filter(Boolean);
   ok(clauses.every(c => !/,\s*$/.test(c)), "no clause ends on a dangling comma");
-  ok(!/[A-Z][A-Za-z\/ ]{1,14}:\s*[A-Z][A-Za-z\/ ]{1,14}:/.test(sp2), "no empty section label left behind by the sanitizer");
+  ok(!/[A-Z][A-Za-z/ ]{1,14}:\s*[A-Z][A-Za-z/ ]{1,14}:/.test(sp2), "no empty section label left behind by the sanitizer");
   ok(!/\b(\w+ \w+), \1\b/.test(sp2), "packing does not repeat a phrase inside a clause");
   // hidden sections are still respected by the packer
   const s3 = E.defaultState(); E.roll(s3, "everything");
@@ -1453,11 +1451,80 @@ section("Undo / redo history");
   ok(h.copies.length === 0, "copy history clears");
 }
 
+/* ---------------- clone helper + MAX performance ---------------- */
+section("Fast clone + MAX performance");
+{
+  const s = freshTechno();
+  const c = E.clone(s);
+  ok(c !== s, "clone() returns a new object");
+  ok(c.kick === s.kick && c.bpm === s.bpm, "clone() preserves scalar values");
+  c.locks.kick = !c.locks.kick;
+  ok(c.locks.kick !== s.locks.kick, "clone() is a deep copy (locks independent)");
+  c.concept.title = "mutated";
+  ok(s.concept.title !== "mutated", "clone() is a deep copy (nested objects independent)");
+
+  /* MAX at 192× clones the state on every try — keep it responsive. */
+  const t0 = Date.now();
+  const res = E.roll(s, "everything", { mode: "max", tries: 192 });
+  const dt = Date.now() - t0;
+  ok(res.tries === 192, "MAX 192× ran all tries");
+  ok(dt < 8000, "MAX 192× stays under 8s with fast clone (" + dt + " ms)");
+  ok(E.buildStylePrompt(s).length <= 1000, "prompt capped after MAX 192×");
+}
+
+/* ---------------- batch lab ---------------- */
+section("Batch lab");
+{
+  const s = freshTechno();
+  s.locks.kick = true;
+  const kick = s.kick, liveSeed = s.seed;
+  const batch = E.rollBatch(s, 8);
+  ok(batch.length === 8, "rollBatch returns the requested number of candidates");
+  ok(batch.every(c => c.prompt.length <= 1000 && c.prompt.length >= 100),
+    "every batch prompt is real content within the 1000-char cap");
+  ok(batch.every(c => c.state.kick === kick), "batch candidates inherit locked fields");
+  ok(batch.every(c => c.state !== s && c.state.locks !== s.locks), "candidates are deep clones of the live state");
+  ok(s.seed === liveSeed, "the live state is untouched by a batch");
+  let sorted = true;
+  for (let i = 1; i < batch.length; i++) if (batch[i - 1].score.total < batch[i].score.total) sorted = false;
+  ok(sorted, "batch is ranked best-first by score");
+  ok(batch.every(c => c.state.techOnly === true), "batch candidates inherit mode chips");
+  const clamped = E.rollBatch(s, 999);
+  ok(clamped.length === 24, "batch size clamps to 24");
+  const maxed = E.rollBatch(s, 2, { mode: "max", tries: 12 });
+  ok(maxed.length === 2 && maxed.every(c => typeof c.score.total === "number"),
+    "batch supports per-candidate MAX search");
+}
+
+/* ---------------- PWA assets ---------------- */
+section("PWA (manifest + service worker)");
+{
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const url = await import("node:url");
+  const root = path.dirname(path.dirname(url.fileURLToPath(import.meta.url)));
+  const mf = JSON.parse(fs.readFileSync(path.join(root, "manifest.webmanifest"), "utf8"));
+  ok(!!mf.name && !!mf.start_url && !!mf.theme_color, "manifest has name, start_url, theme_color");
+  ok(Array.isArray(mf.icons) && mf.icons.length > 0 && /icon\.svg$/.test(mf.icons[0].src),
+    "manifest declares the app icon");
+  const swSrc = fs.readFileSync(path.join(root, "sw.js"), "utf8");
+  new Function(swSrc); /* syntax check only — worker APIs are not in node */
+  ok(/addEventListener\("install"/.test(swSrc) && /addEventListener\("fetch"/.test(swSrc) &&
+     /addEventListener\("activate"/.test(swSrc), "service worker handles install/activate/fetch");
+  ok(/caches\.delete/.test(swSrc), "service worker prunes stale caches on activate");
+  const icon = fs.readFileSync(path.join(root, "icons", "icon.svg"), "utf8");
+  ok(/<svg/.test(icon) && /linearGradient/.test(icon), "app icon exists and is neon-graded SVG");
+  const idx = fs.readFileSync(path.join(root, "index.html"), "utf8");
+  ok(/rel="manifest"/.test(idx) && /theme-color/.test(idx), "index.html links manifest + theme-color");
+  const stamp = fs.readFileSync(path.join(root, "tools", "stamp.js"), "utf8");
+  ok(/SW_VERSION/.test(stamp), "deploy stamp bumps the service-worker cache version");
+}
+
 section("UI boot (jsdom)");
 await (async () => {
   let JSDOM;
   try { ({ JSDOM } = await import("jsdom")); }
-  catch (e) {
+  catch {
     console.log("  ~ jsdom not installed — skipping UI boot test (npm i to enable)");
     return;
   }
@@ -1478,10 +1545,11 @@ await (async () => {
   global.document = dom.window.document;
   global.location = dom.window.location;
   global.history = dom.window.history;
+  global.localStorage = dom.window.localStorage;
   Object.defineProperty(global, "navigator", { value: dom.window.navigator, configurable: true });
   dom.window.addEventListener("error", e => errors.push(e.message));
   try {
-    const app = await import("../ui/app.js?" + Date.now());
+    await import("../ui/app.js?" + Date.now()); /* side-effect: boots the app */
     ok(!!dom.window.__NF, "window.__NF test hook exists");
     ok(errors.length === 0, "no window errors during boot");
     const NF = dom.window.__NF;
@@ -1587,6 +1655,112 @@ await (async () => {
     ok(NF.get().hideBeats === false, "hide-beats chip toggles back off");
     ok(!!doc.querySelector("#densityChip"), "sound-density readout rendered");
     ok(!!doc.querySelector("#buildChip"), "build id readout rendered");
+
+    /* ---------- v4: share-URL sync regression ----------
+       The local History instance shadowed window.history, so
+       history.replaceState() threw inside a try/catch and the ?s= URL
+       never updated after boot. It must track the live state now. */
+    const urlSeed = new URLSearchParams(dom.window.location.search).get("s");
+    ok(!!urlSeed, "share URL carries ?s= after UI interactions");
+    const urlState = NF.decodeState(urlSeed || "");
+    ok(urlState && urlState.seed === NF.get().seed, "share URL round-trips the current seed");
+
+    /* ---------- v4: accessibility semantics ---------- */
+    const slChip = doc.querySelector("#soundLiteToggle");
+    ok(slChip.tagName === "BUTTON", "mode chips are real <button> elements (keyboard focusable)");
+    ok(["true", "false"].includes(slChip.getAttribute("aria-pressed")), "mode chips expose aria-pressed");
+    ok(!!doc.querySelector('[data-roll="kick"]').getAttribute("aria-label"), "roll icon buttons expose an accessible name");
+    ok(!!doc.querySelector('[data-lock="kick"]').getAttribute("aria-label"), "lock icon buttons expose an accessible name");
+    ok(!!doc.querySelector('[data-cardhide="bassCard"]').getAttribute("aria-label"), "card hide buttons expose an accessible name");
+    ok(doc.querySelector("#toast").getAttribute("role") === "status" &&
+       doc.querySelector("#toast").getAttribute("aria-live") === "polite", "toast is an ARIA live status region");
+    const tabStyle = doc.querySelector('#outTabs [data-tab="style"]');
+    ok(tabStyle.getAttribute("role") === "tab" && ["true", "false"].includes(tabStyle.getAttribute("aria-selected")),
+      "output tabs expose tab semantics with aria-selected");
+    ok(doc.querySelector("#outTabs").getAttribute("role") === "tablist", "output tab strip is a tablist");
+    const layerChip = doc.querySelector("[data-layer]");
+    ok(layerChip.tagName === "BUTTON" && ["true", "false"].includes(layerChip.getAttribute("aria-pressed")),
+      "detail-layer chips are toggle buttons with aria-pressed");
+
+    /* ---------- v4: keyboard shortcuts dialog ---------- */
+    const keysBtn = doc.querySelector("#keysBtn");
+    ok(!!keysBtn, "KEYS button rendered");
+    keysBtn.click();
+    const scModal = doc.querySelector("#shortcutsModal");
+    ok(!scModal.hidden && !!scModal.querySelector("[role=dialog]"), "shortcuts dialog opens with dialog role");
+    const seedWhileOpen = NF.get().seed;
+    doc.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "r", bubbles: true, cancelable: true }));
+    ok(NF.get().seed === seedWhileOpen, "single-key shortcuts are suppressed while the dialog is open");
+    doc.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    ok(scModal.hidden === true, "Escape closes the shortcuts dialog");
+
+    /* ---------- v4: collapsible cards ---------- */
+    const colBtn = doc.querySelector('[data-collapse="bassCard"]');
+    ok(!!colBtn && colBtn.getAttribute("aria-expanded") === "true", "collapse toggle rendered expanded");
+    colBtn.click();
+    ok(doc.querySelector("#bassCard").classList.contains("collapsed"), "card collapses via its toggle");
+    ok(doc.querySelector('[data-collapse="bassCard"]').getAttribute("aria-expanded") === "false",
+      "collapse toggle flips aria-expanded");
+    doc.querySelector('[data-collapse="bassCard"]').click();
+    ok(!doc.querySelector("#bassCard").classList.contains("collapsed"), "card expands again");
+    doc.querySelector("#collapseAllBtn").click();
+    ok(doc.querySelectorAll("#cards .card").length === doc.querySelectorAll("#cards .card.collapsed").length &&
+       doc.querySelectorAll("#cards .card").length > 0, "collapse-all collapses every card");
+    doc.querySelector("#expandAllBtn").click();
+    ok(doc.querySelectorAll("#cards .card.collapsed").length === 0, "expand-all restores every card");
+
+    /* ---------- v4.1: picker modal Escape ---------- */
+    const pickBtn = doc.querySelector('[data-pick="kick"]');
+    if (pickBtn) {
+      pickBtn.click();
+      ok(!doc.querySelector("#pickerModal").hidden, "picker modal opens from the pick button");
+      ok(!!doc.querySelector("#pickerModal [role=dialog]"), "picker modal exposes dialog role");
+      doc.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      ok(doc.querySelector("#pickerModal").hidden === true, "Escape closes the picker modal");
+    }
+
+    /* ---------- v4.1: batch lab ---------- */
+    const batchBtn = doc.querySelector("#batchBtn");
+    ok(!!batchBtn, "BATCH button rendered");
+    batchBtn.click();
+    ok(!!doc.querySelector("#batchCard"), "batch panel opens");
+    doc.querySelector("#batchGo").click();
+    const bRows = doc.querySelectorAll(".batchRow");
+    ok(bRows.length === 8, "batch rolls 8 ranked candidates (" + bRows.length + ")");
+    const bScores = Array.from(doc.querySelectorAll(".batchScore")).map(e => +e.textContent);
+    ok(bScores.every((v, i) => i === 0 || bScores[i - 1] >= v), "batch rows render best-first");
+    ok(NF.getBatch().length === 8, "batch candidates are exposed to the test hook");
+    /* →B sends the top candidate into compare */
+    const topPrompt = NF.getBatch()[0].prompt;
+    bRows[0].querySelector("[data-bb]").click();
+    ok(!!NF.compare.b && NF.compare.b.prompt === topPrompt, "batch →B fills compare slot B with the candidate");
+    /* Load swaps the candidate into the live state */
+    const topSeed = NF.getBatch()[0].state.seed;
+    bRows[0].querySelector("[data-bload]").click();
+    ok(NF.get().seed === topSeed, "batch Load makes the candidate the live state");
+    /* Copy archives the candidate prompt */
+    const nC = NF.history.copies.length;
+    doc.querySelector("[data-bcopy]").click();
+    ok(NF.history.copies.length === nC + 1, "batch Copy archives the candidate to history");
+    doc.querySelector("#batchClear").click();
+    ok(doc.querySelectorAll(".batchRow").length === 0, "batch clear empties the list");
+
+    /* ---------- v4.1: session autosave ---------- */
+    doc.querySelector("#rollAllBtn").click();
+    await new Promise(r => setTimeout(r, 400));
+    const sessRaw = dom.window.localStorage.getItem("neonforge.session.v1");
+    ok(!!sessRaw, "session autosaves to localStorage after a change");
+    const sess = sessRaw ? JSON.parse(sessRaw) : null;
+    ok(!!sess && sess.v === 1 && sess.state.seed === NF.get().seed, "autosaved session matches the live state");
+    const restored = NF.loadPersistedSession();
+    ok(!!restored && restored.seed === NF.get().seed && restored.primaryStyle === NF.get().primaryStyle,
+      "loadPersistedSession round-trips the session");
+
+    /* ---------- v4.1: New button ---------- */
+    const beforeNew = NF.get().seed;
+    doc.querySelector("#newBtn").click();
+    ok(NF.get().seed !== beforeNew, "🆕 New rolls a fresh state");
+    ok(Object.values(NF.get().locks).every(v => v === false), "🆕 New resets every lock");
   } catch (e) {
     failures++;
     console.log("  ✗ FAIL: UI boot crashed — " + (e && e.stack || e));

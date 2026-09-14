@@ -85,20 +85,28 @@ function showModal(label, options, current, onPick) {
     const f = (filter || "").toLowerCase();
     const list = f ? options.filter(o => String(o).toLowerCase().includes(f)) : options;
     const capped = list.slice(0, 600);
-    return capped.map(o =>
-      `<button class="popt ${String(o) === String(current) ? "cur" : ""}" data-val="${escapeHtml(o)}">${escapeHtml(o)}</button>`
-    ).join("") + (list.length > 600 ? `<span class="readout">…${list.length - 600} more — refine the search</span>` : "");
+    return capped.map(o => {
+      const cur = String(o) === String(current);
+      return `<button class="popt ${cur ? "cur" : ""}" data-val="${escapeHtml(o)}" aria-current="${cur ? "true" : "false"}">${escapeHtml(o)}</button>`;
+    }).join("") + (list.length > 600 ? `<span class="readout">…${list.length - 600} more — refine the search</span>` : "");
   };
   modal.innerHTML = `
-    <div class="box">
+    <div class="box" role="dialog" aria-modal="true" aria-label="${escapeHtml(label)}">
       <header>
         <h3>${escapeHtml(label)} <span class="readout">(${options.length} options)</span></h3>
-        <input type="search" id="pickerSearch" placeholder="search…">
-        <button class="btn small" id="pickerClose">✕</button>
+        <input type="search" id="pickerSearch" placeholder="search…" aria-label="Search options">
+        <button class="btn small" id="pickerClose" aria-label="Close picker">✕</button>
       </header>
       <div class="grid" id="pickerGrid">${renderList("")}</div>
     </div>`;
-  const close = () => { modal.hidden = true; modal.innerHTML = ""; };
+  const close = () => {
+    modal.hidden = true; modal.innerHTML = "";
+    document.removeEventListener("keydown", onKey, true);
+  };
+  /* Escape dismisses; captured at capture phase so it wins even while the
+     search input is focused. */
+  const onKey = e => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); } };
+  document.addEventListener("keydown", onKey, true);
   modal.querySelector("#pickerClose").addEventListener("click", close);
   modal.addEventListener("click", e => { if (e.target === modal) close(); }, { once: true });
   modal.querySelector("#pickerSearch").addEventListener("input", e => {
@@ -110,5 +118,5 @@ function showModal(label, options, current, onPick) {
     onPick(b.getAttribute("data-val"));
   });
   const s = modal.querySelector("#pickerSearch");
-  try { s.focus(); } catch (e) { }
+  try { s.focus(); } catch { }
 }

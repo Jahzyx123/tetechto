@@ -70,12 +70,6 @@ function topo(entryAbs) {
   return order;
 }
 
-function allExports(mod) {
-  const out = new Set(mod.exports);
-  for (const r of mod.reexports) for (const e of allExports(modules.get(r))) out.add(e);
-  return [...out];
-}
-
 function emit(mod) {
   let body = mod.src;
   // imports → destructuring from the evaluated module object
