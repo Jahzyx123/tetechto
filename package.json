@@ -1,6 +1,6 @@
 {
   "name": "neon-forge",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "private": true,
   "type": "module",
   "description": "NEON FORGE — modular Suno prompt lab for techno (and everything else). ES modules, no bundler.",
@@ -8,10 +8,15 @@
     "start": "python3 -m http.server 8080",
     "preview": "node tools/build.js && (cd dist && python3 ../tools/serve.py 8080)",
     "extract": "node tools/extract-data.js",
+    "expand": "node tools/expand-sounds.js && node tools/expand-sounds2.js && node tools/expand-concepts.js && node tools/expand-concepts2.js && node tools/expand-structures.js && node tools/expand-acoustic.js && node tools/expand-sparks.js && node tools/expand-prompt-extras.js && node tools/expand-sounds3.js",
     "build": "node tools/build.js",
+    "lint": "eslint .",
     "test": "node tests/run.js"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.10.0",
+    "globals": "^17.12.0",
     "jsdom": "^24.1.3"
   }
 }

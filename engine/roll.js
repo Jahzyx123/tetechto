@@ -13,9 +13,9 @@
 
    Locks are always respected; genre-affecting scopes trigger the
    style-fit auto-curation exactly like the legacy engine did. */
-import { ROLL_FN, GROUPS, HIDE_BEATS_KEYS } from "./state.js";
+import { ROLL_FN, GROUPS, HIDE_BEATS_KEYS, clone } from "./state.js";
 import { newSeed, setSeed, random } from "./prng.js";
-import { scorePrompt } from "./prompt.js";
+import { scorePrompt, buildStylePrompt } from "./prompt.js";
 import { styleFitCards, ELECTRONIC_LEAN_CARDS, FIT_GROUPS, SOUND_LITE_CARDS, SOUND_LITE_LAYERS_KEEP, HIDE_BEATS_CARDS, HIDE_BEATS_LAYERS_KEEP } from "./world.js";
 import { LAYERS } from "../data/safety.js";
 
@@ -132,7 +132,6 @@ function rollMax(state, scope, keys, opts) {
   };
 }
 
-function clone(s) { return JSON.parse(JSON.stringify(s)); }
 /* cheap identity of a rolled set, used to detect "actually different".
    Object atoms (concept, melodyConcept, counterMelody, voiceConcept)
    used to be skipped, so a candidate that only changed a command was
@@ -323,3 +322,28 @@ export function setHideBeats(state, on) {
   return { hid, restored };
 }
 export function noStopOn(state) { return !!(state && state.noStop); }
+
+/* ---------------------------- BATCH LAB ----------------------------
+   The MEGA BATCH idea rebuilt on the unified engine: roll N fully
+   independent candidates from the current state — every lock, chip and
+   the weirdness setting are inherited — then score, rank and return
+   them with their Style Prompt previews. The live state is never
+   touched; each candidate is its own clone.
+
+   opts.mode "max" runs each candidate through its own MAX search
+   (opts.tries per candidate) for a deeper but slower batch. */
+export function rollBatch(base, count, opts = {}) {
+  const n = Math.max(1, Math.min(24, count | 0 || 8));
+  const mode = opts.mode === "max" ? "max" : "random";
+  const tries = opts.tries || 24;
+  const keepStyle = opts.keepStyle !== undefined ? opts.keepStyle : !base.maxStyle;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const cand = clone(base);
+    roll(cand, "everything", { mode, tries, keepStyle });
+    const score = scorePrompt(cand);
+    out.push({ state: cand, score, prompt: buildStylePrompt(cand) });
+  }
+  out.sort((a, b) => b.score.total - a.score.total);
+  return out;
+}

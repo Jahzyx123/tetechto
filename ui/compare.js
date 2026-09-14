@@ -9,14 +9,14 @@
    a MAX run, or a library entry). Keeping either one just swaps that
    state back into the app. */
 
+import { clone } from "../engine/state.js";
+
 export class Compare {
   constructor() { this.a = null; this.b = null; }
 
-  clone(state) { return JSON.parse(JSON.stringify(state)); }
-
   setSlot(slot, state, prompt, score) {
     const snap = {
-      state: this.clone(state),
+      state: clone(state),
       prompt: String(prompt || ""),
       score: score || { total: 0, items: [] }
     };

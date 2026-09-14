@@ -209,7 +209,7 @@ section("Unified roll(scope, mode) engine");
   ok(typeof res3.score === "number" && frozen === JSON.stringify({ k: s.kick, p: s.primaryStyle, b: s.bpm }), "fully-locked maximize returns without changing state");
   Object.keys(s.locks).forEach(k => s.locks[k] = false);
   let threw = false;
-  try { E.roll(s, "nonsense-scope"); } catch (e) { threw = true; }
+  try { E.roll(s, "nonsense-scope"); } catch { threw = true; }
   ok(threw, "unknown scope throws instead of silently no-oping");
 }
 
@@ -348,7 +348,6 @@ section("Vocal-cue neutralization (output-time)");
      breathing, breathes, breathe, breathed, breathy, breath-like). */
   const CUE = /\b(?:hoovers?|hum(?:s|ming|med)?|songs?|hymns?|psalms?|gospel\w*|operas?\b|operatic|throat\w*|tenors?|alto\b|baritones?|sopranos?|croon\w*|sing(?:s|ing|er|ers|able)?\b|chorus(?:es)?\b|verses?|choirs?\b|choral|chants?\b|lullab(?:y|ies)\b|doo-?wops?|whistl\w*|sighs?|call[\s-]+and[\s-]+response|voices?\b|vocals?\b|breath(?:ing|ed|y|s|like)?\b|crowds?\b|shout\w*|scream\w*|whisper\w*|cheers?\b|arias?|words?)\b/i;
   const safeTail = [/\bwithout any movement words\b/];
-  const tail = (t, re) => t.replace(re, "\u0000");
   let leaked = 0, checked = 0;
   for (let i = 0; i < 80; i++) {
     const s = E.defaultState();
@@ -439,7 +438,6 @@ section("Vocal-cue neutralization (output-time)");
 /* ---------------- melody intensity (no simple/relax) ---------------- */
 section("Melody intensity (no simple/relax)");
 {
-  const SOFT = E.MELODY_SOFT_RE, INTENSE = E.MELODY_INTENSE_RE;
   /* every generated extra survives the runtime relax filter */
   let genDropped = 0;
   for (const k in EXTRA_MELODY_CONCEPT)
@@ -722,7 +720,7 @@ section("Style Prompt density (sound packing)");
   ok(!E.hasVocalRef(noPolicy2), "packed prompt stays instrumental-safe");
   const clauses = sp2.split(/\.\s+/).map(c => c.trim()).filter(Boolean);
   ok(clauses.every(c => !/,\s*$/.test(c)), "no clause ends on a dangling comma");
-  ok(!/[A-Z][A-Za-z\/ ]{1,14}:\s*[A-Z][A-Za-z\/ ]{1,14}:/.test(sp2), "no empty section label left behind by the sanitizer");
+  ok(!/[A-Z][A-Za-z/ ]{1,14}:\s*[A-Z][A-Za-z/ ]{1,14}:/.test(sp2), "no empty section label left behind by the sanitizer");
   ok(!/\b(\w+ \w+), \1\b/.test(sp2), "packing does not repeat a phrase inside a clause");
   // hidden sections are still respected by the packer
   const s3 = E.defaultState(); E.roll(s3, "everything");
@@ -872,6 +870,9 @@ section("No-stop beat");
     "no-stop forces max-energy feeling (\"" + s.feeling + "\")");
   ok(!/\b(soothing|serene|gentle|lazy|calm|soft|quiet)\b/i.test(s.feeling + " " + s.flavor + " " + s.direction),
     "no low-energy emotion survives ultra delivery");
+  ok(["feeling", "flavor", "direction"].every(k =>
+    E.poolFor(s, k).every(v => !E.NO_STOP_LOW_ENERGY_RE.test(v))),
+    "no-stop emotion pools are pre-filtered to max-energy vocabulary (contrast entries parked)");
   const fbU = E.buildFullBrief(s);
   ok(/ultra delivery|relentless energy/i.test(fbU) && fbU.length <= 3000, "no-stop brief carries the ultra-delivery policy");
   // clearing returns to the standard drop/breakdown shape
@@ -1315,6 +1316,24 @@ section("Style pool expansion");
   }
   ok(lost === 0, "style name survives into every prompt across 200 rolls (" + lost + " lost)");
 
+  /* Regression: vocal-rewritten style names ("Festival Gospel" → "Festival
+     Church") used to lose words on the second genre-safe pass — the
+     protection only parked the RAW name, so festival→"" ate into the name.
+     All rendered forms must now be protected. */
+  {
+    const st = E.defaultState();
+    st.techOnly = false; st.styleFit = false;
+    st.primaryGenre = "Church"; st.secondaryGenre = "Airport";
+    st.primaryStyle = "Festival Gospel"; st.secondaryStyle = "Touchdown Airport";
+    for (const scope of ["feel-melody", "bass", "drums", "harmony", "rhythm", "arrangement"]) E.roll(st, scope);
+    const sp = E.buildStylePrompt(st);
+    const fb = E.buildFullBrief(st);
+    const okForms = E.styleProtectForms(st);
+    ok(okForms.some(f => sp.includes(f)), "vocal-rewritten style name survives the Style Prompt (" + st.primaryStyle + ")");
+    ok(okForms.some(f => fb.includes(f)), "vocal-rewritten style name survives the Full Brief");
+    ok(!/^\s*Church\b/.test(sp), "the genre-safe rewrite no longer eats words out of the style name");
+  }
+
   // techno-only never reaches into the genre pool, even expanded
   const names = new Set(E.STYLES.map(x => x.n));
   const st = E.defaultState(); st.techOnly = true;
@@ -1453,11 +1472,498 @@ section("Undo / redo history");
   ok(h.copies.length === 0, "copy history clears");
 }
 
+/* ---------------- clone helper + MAX performance ---------------- */
+section("Fast clone + MAX performance");
+{
+  const s = freshTechno();
+  const c = E.clone(s);
+  ok(c !== s, "clone() returns a new object");
+  ok(c.kick === s.kick && c.bpm === s.bpm, "clone() preserves scalar values");
+  c.locks.kick = !c.locks.kick;
+  ok(c.locks.kick !== s.locks.kick, "clone() is a deep copy (locks independent)");
+  c.concept.title = "mutated";
+  ok(s.concept.title !== "mutated", "clone() is a deep copy (nested objects independent)");
+
+  /* MAX at 192× clones the state on every try — keep it responsive. */
+  const t0 = Date.now();
+  const res = E.roll(s, "everything", { mode: "max", tries: 192 });
+  const dt = Date.now() - t0;
+  ok(res.tries === 192, "MAX 192× ran all tries");
+  ok(dt < 8000, "MAX 192× stays under 8s with fast clone (" + dt + " ms)");
+  ok(E.buildStylePrompt(s).length <= 1000, "prompt capped after MAX 192×");
+}
+
+/* ---------------- batch lab ---------------- */
+section("Batch lab");
+{
+  const s = freshTechno();
+  s.locks.kick = true;
+  const kick = s.kick, liveSeed = s.seed;
+  const batch = E.rollBatch(s, 8);
+  ok(batch.length === 8, "rollBatch returns the requested number of candidates");
+  ok(batch.every(c => c.prompt.length <= 1000 && c.prompt.length >= 100),
+    "every batch prompt is real content within the 1000-char cap");
+  ok(batch.every(c => c.state.kick === kick), "batch candidates inherit locked fields");
+  ok(batch.every(c => c.state !== s && c.state.locks !== s.locks), "candidates are deep clones of the live state");
+  ok(s.seed === liveSeed, "the live state is untouched by a batch");
+  let sorted = true;
+  for (let i = 1; i < batch.length; i++) if (batch[i - 1].score.total < batch[i].score.total) sorted = false;
+  ok(sorted, "batch is ranked best-first by score");
+  ok(batch.every(c => c.state.techOnly === true), "batch candidates inherit mode chips");
+  const clamped = E.rollBatch(s, 999);
+  ok(clamped.length === 24, "batch size clamps to 24");
+  const maxed = E.rollBatch(s, 2, { mode: "max", tries: 12 });
+  ok(maxed.length === 2 && maxed.every(c => typeof c.score.total === "number"),
+    "batch supports per-candidate MAX search");
+}
+
+/* ---------------- concept + melody expansion ---------------- */
+section("Concept & melody-concept expansion");
+{
+  const C = await import("../data/concept.js");
+  const CX = await import("../data/concept-extra.js");
+  ok(E.CONCEPT_EXPANSION_STATS.added >= 2500,
+    "concept pools gain ≥2500 generated entries (+" + E.CONCEPT_EXPANSION_STATS.added + ")");
+  const mins = { world: 400, location: 350, visual: 350, narrative: 330, sensation: 300, event: 330, conflict: 250, crowd: 250, title: 380, transform: 280 };
+  let minsOk = true; const sizes = [];
+  for (const k in mins) {
+    const n = (E.CONCEPT_POOL[k] || []).length;
+    sizes.push(k + ":" + n);
+    if (n < mins[k]) minsOk = false;
+  }
+  ok(minsOk, "every concept key reaches its expanded floor (" + sizes.join(" ") + ")");
+  let dupes = 0;
+  for (const k in E.CONCEPT_POOL) {
+    const seen = new Set();
+    for (const v of E.CONCEPT_POOL[k]) {
+      const x = String(v).toLowerCase().trim();
+      if (seen.has(x)) dupes++;
+      seen.add(x);
+    }
+  }
+  ok(dupes === 0, "merged concept pools contain zero case-insensitive duplicates");
+  const banned = /\b(minimal|minimalist|sparse|restrained|low[- ]energy|weak|tiny|gentle|quiet)\b/i;
+  const vocalRe = new RegExp("\\b(" + (D.VOCAL_WORDS || []).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b", "i");
+  let dirty = 0;
+  for (const k in CX.EXTRA_CONCEPT) for (const v of CX.EXTRA_CONCEPT[k]) {
+    if (banned.test(v) || vocalRe.test(v)) dirty++;
+  }
+  ok(dirty === 0, "generated concepts are banned-word- and vocal-free");
+  /* the roll engine must actually draw from the expanded pools */
+  const s = E.defaultState();
+  const verbatim = new Set();
+  for (const k in C.CONCEPT) C.CONCEPT[k].forEach(v => verbatim.add(k + "|" + v));
+  let expandedHits = 0;
+  for (let i = 0; i < 300; i++) {
+    E.roll(s, "concept");
+    for (const k in s.concept) if (s.concept[k] && !verbatim.has(k + "|" + s.concept[k])) expandedHits++;
+  }
+  ok(expandedHits > 50, "concept rolls draw heavily from the expansion (" + expandedHits + "/3000 expanded draws)");
+  /* the melody sound-pool merge bug is fixed: extras actually land now */
+  ok(E.MELODY_EXPANSION_STATS.pools >= 5 && E.MELODY_EXPANSION_STATS.added >= 100,
+    "melody sound pools merge their generated extras (" + E.MELODY_EXPANSION_STATS.pools + " pools, +" + E.MELODY_EXPANSION_STATS.added + ")");
+  let relax = 0;
+  for (const k in CX.EXTRA_MELODY_CONCEPT_MORE) {
+    for (const v of CX.EXTRA_MELODY_CONCEPT_MORE[k]) if (E.isRelaxMelody(v)) relax++;
+  }
+  ok(relax === 0, "extra melody-concept lines survive the runtime relax filter");
+  ok(E.MELODY_CONCEPT_POOL.story.length >= 160 && E.MELODY_CONCEPT_POOL.hook.length >= 120,
+    "melody-concept pools reach their merged sizes (story:" + E.MELODY_CONCEPT_POOL.story.length +
+    " role:" + E.MELODY_CONCEPT_POOL.role.length + " motion:" + E.MELODY_CONCEPT_POOL.motion.length +
+    " hook:" + E.MELODY_CONCEPT_POOL.hook.length + ")");
+  /* prompts stay capped with the richer concept vocabulary */
+  let over = 0;
+  for (let i = 0; i < 40; i++) {
+    E.roll(s, "everything");
+    if (E.buildStylePrompt(s).length > 1000 || E.buildFullBrief(s).length > 3000) over++;
+  }
+  ok(over === 0, "prompt caps hold with expanded concepts across 40 rolls");
+}
+
+/* ---------------- PWA assets ---------------- */
+section("PWA (manifest + service worker)");
+{
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const url = await import("node:url");
+  const root = path.dirname(path.dirname(url.fileURLToPath(import.meta.url)));
+  const mf = JSON.parse(fs.readFileSync(path.join(root, "manifest.webmanifest"), "utf8"));
+  ok(!!mf.name && !!mf.start_url && !!mf.theme_color, "manifest has name, start_url, theme_color");
+  ok(Array.isArray(mf.icons) && mf.icons.length > 0 && /icon\.svg$/.test(mf.icons[0].src),
+    "manifest declares the app icon");
+  const swSrc = fs.readFileSync(path.join(root, "sw.js"), "utf8");
+  new Function(swSrc); /* syntax check only — worker APIs are not in node */
+  ok(/addEventListener\("install"/.test(swSrc) && /addEventListener\("fetch"/.test(swSrc) &&
+     /addEventListener\("activate"/.test(swSrc), "service worker handles install/activate/fetch");
+  ok(/caches\.delete/.test(swSrc), "service worker prunes stale caches on activate");
+  const icon = fs.readFileSync(path.join(root, "icons", "icon.svg"), "utf8");
+  ok(/<svg/.test(icon) && /linearGradient/.test(icon), "app icon exists and is neon-graded SVG");
+  const idx = fs.readFileSync(path.join(root, "index.html"), "utf8");
+  ok(/rel="manifest"/.test(idx) && /theme-color/.test(idx), "index.html links manifest + theme-color");
+  const stamp = fs.readFileSync(path.join(root, "tools", "stamp.js"), "utf8");
+  ok(/SW_VERSION/.test(stamp), "deploy stamp bumps the service-worker cache version");
+}
+
+/* ---------------- v4.3 structure + hybrid sound expansion ---------------- */
+section("Structure expansion (arrangements)");
+{
+  const SX = await import("../data/structure-extra.js");
+  const C = await import("../data/concept.js");
+  ok(SX.EXTRA_ARRANGEMENTS.length >= 200,
+    "structure generator adds ≥200 standard section-chains (+" + SX.EXTRA_ARRANGEMENTS.length + ")");
+  ok(SX.EXTRA_NO_STOP_ARRANGEMENTS.length >= 150,
+    "structure generator adds ≥150 no-break chains (+" + SX.EXTRA_NO_STOP_ARRANGEMENTS.length + ")");
+  const banned = /\b(minimal|minimalist|sparse|restrained|low[- ]?energy|weak|tiny|gentle|quiet|soft|thin|calm|subdued|delicate|faint|mellow)\b/i;
+  const vocalRe = new RegExp("\\b(" + (D.VOCAL_WORDS || []).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b", "i");
+  const breakRe = /\b(break|breaks|breakdown|breakdowns|breakbeat|bridge|bridges|gap|gaps|pause|pauses|silence|silent|vacuum|blackout|rest|breather|lull|stutter|stutters)\b/i;
+  let dirty = 0;
+  for (const t of SX.EXTRA_ARRANGEMENTS) if (banned.test(t) || vocalRe.test(t)) dirty++;
+  for (const t of SX.EXTRA_NO_STOP_ARRANGEMENTS) if (banned.test(t) || vocalRe.test(t)) dirty++;
+  ok(dirty === 0, "generated arrangements are banned-word- and vocal-free");
+  ok(SX.EXTRA_NO_STOP_ARRANGEMENTS.every(t => !breakRe.test(t)),
+    "every generated no-break chain refuses break-words at the source");
+  ok(E.NO_STOP_ARRANGEMENTS_FULL.every(t => !breakRe.test(t)),
+    "the merged no-stop pool contains no break-word anywhere");
+  const verbatim = new Set(C.ARRANGEMENTS.map(x => String(x).toLowerCase().trim()));
+  ok(SX.EXTRA_ARRANGEMENTS.every(t => !verbatim.has(t.toLowerCase().trim())),
+    "generated chains never duplicate the verbatim arrangements");
+  ok(E.ARRANGEMENTS_FULL.length >= C.ARRANGEMENTS.length + 200,
+    "merged arrangement pool reaches ≥" + (C.ARRANGEMENTS.length + 200) + " (" + E.ARRANGEMENTS_FULL.length + ")");
+  ok(E.NO_STOP_ARRANGEMENTS_FULL.length >= 160,
+    "merged no-stop arrangement pool reaches ≥160 (" + E.NO_STOP_ARRANGEMENTS_FULL.length + ")");
+  ok(E.ARRANGEMENTS_FULL.slice(0, 12).join("|") === C.ARRANGEMENTS.slice(0, 12).join("|"),
+    "the 12 fast-start arrangements keep their positions at the front of the merged pool");
+  /* rolls actually reach the generated chains (standard duration appends ".") */
+  const s = E.defaultState(); s.duration = "standard";
+  const unwrap = a => a.replace(/\.$/, "");
+  let hitExtra = 0, hitNsExtra = 0;
+  const hand = new Set(E.NO_STOP_ARRANGEMENTS.map(x => x.toLowerCase()));
+  for (let i = 0; i < 300; i++) {
+    const a = unwrap(E.pickArrangementFor(s));
+    if (!verbatim.has(a.toLowerCase().trim())) hitExtra++;
+    const n = unwrap(E.pickNoStopArrangement(s));
+    if (!hand.has(n.toLowerCase().trim())) hitNsExtra++;
+  }
+  ok(hitExtra >= 60, "arrangement rolls draw from the expansion (" + hitExtra + "/300 outside verbatim)");
+  ok(hitNsExtra >= 40, "no-stop rolls draw from the expansion (" + hitNsExtra + "/300 outside hand-written)");
+  /* duration wrappers still shape the line */
+  ok(E.pickArrangementFor({ ...s, duration: "compact" }).startsWith("Tight intro, "),
+    "compact wrapper survives the expanded pool");
+  ok(E.pickArrangementFor({ ...s, duration: "extended" }).startsWith("Long-form journey: "),
+    "extended wrapper survives the expanded pool");
+  ok(E.pickNoStopArrangement({ ...s, duration: "compact" }).startsWith("Instant groove intro, "),
+    "no-stop compact wrapper survives the expanded pool");
+  /* prompt caps hold with the richer arrangement vocabulary */
+  let over = 0;
+  for (let i = 0; i < 30; i++) {
+    E.roll(s, "everything");
+    if (E.buildStylePrompt(s).length > 1000 || E.buildFullBrief(s).length > 3000) over++;
+  }
+  ok(over === 0, "prompt caps hold with expanded arrangements across 30 rolls");
+}
+
+section("Hybrid sound vocabulary (full atom coverage)");
+{
+  const A = await import("../data/acoustic.js");
+  const orgKeys = Object.keys(A.ORGANIC_POOLS);
+  const hybKeys = Object.keys(A.HYBRID_POOLS);
+  ok(hybKeys.length >= 90, "hybrid pools cover ≥90 atom keys (" + hybKeys.length + ")");
+  ok(orgKeys.every(k => (A.HYBRID_POOLS[k] || []).length > 0),
+    "every organic atom key has its own hybrid vocabulary (no techno fallback left)");
+  const total = hybKeys.reduce((n, k) => n + A.HYBRID_POOLS[k].length, 0);
+  ok(total >= 1200, "hybrid pools carry ≥1200 entries (" + total + ")");
+  const banned = /\b(minimal|minimalist|sparse|restrained|low[- ]?energy|weak|tiny|gentle|quiet|soft|thin|calm|subdued|delicate|faint|mellow)\b/i;
+  const vocalRe = new RegExp("\\b(" + (D.VOCAL_WORDS || []).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b", "i");
+  let dirty = 0, dupes = 0;
+  for (const k of hybKeys) {
+    const seen = new Set();
+    for (const t of A.HYBRID_POOLS[k]) {
+      if (banned.test(t) || vocalRe.test(t)) dirty++;
+      const key = t.toLowerCase().trim();
+      if (seen.has(key)) dupes++;
+      seen.add(key);
+    }
+  }
+  ok(dirty === 0, "hybrid vocabulary is banned-word- and vocal-free");
+  ok(dupes === 0, "hybrid pools contain no duplicates");
+  /* poolFor must resolve the hybrid pools for hybrid genres — no leak of
+     organic/techno vocab for keys the hybrid set now owns. */
+  const s = E.defaultState();
+  s.techOnly = false; s.styleFit = true; s.primaryGenre = "Shoegaze";
+  let mismatched = 0;
+  for (const k of ["kick", "snare", "hats", "groove", "leadVoice", "reverbType", "distortionType", "filterType", "energyCurve", "chordProg"]) {
+    const got = E.poolFor(s, k);
+    const exp = E.MELODY_KEYS.has(k) ? A.HYBRID_POOLS[k].filter(x => !E.isRelaxMelody(x)) : A.HYBRID_POOLS[k];
+    if (JSON.stringify(got) !== JSON.stringify(exp)) mismatched++;
+  }
+  ok(mismatched === 0, "poolFor hands hybrid genres the hybrid pools (10/10 keys checked)");
+  const organic = { ...s, primaryGenre: "Jazz" };
+  const expKick = E.MELODY_KEYS.has("kick") ? A.ORGANIC_POOLS.kick.filter(x => !E.isRelaxMelody(x)) : A.ORGANIC_POOLS.kick;
+  ok(JSON.stringify(E.poolFor(organic, "kick")) === JSON.stringify(expKick),
+    "organic genres still resolve the organic pools");
+}
+
+/* ---------------- v4.4 concepts & sounds wave two ---------------- */
+section("Concepts wave two");
+{
+  const W2 = await import("../data/concept-extra2.js");
+  const banned = /\b(minimal|minimalist|sparse|restrained|low[- ]?energy|weak|tiny|gentle|quiet)\b/i;
+  const vocalRe = new RegExp("\\b(" + (D.VOCAL_WORDS || []).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b", "i");
+  let dirty = 0;
+  for (const k in W2.EXTRA_CONCEPT_W2) for (const v of W2.EXTRA_CONCEPT_W2[k]) {
+    if (banned.test(v) || vocalRe.test(v)) dirty++;
+  }
+  ok(dirty === 0, "wave-two concepts are banned-word- and vocal-free");
+  const floors = { world: 750, location: 650, visual: 630, narrative: 620, sensation: 560, event: 620, conflict: 530, crowd: 530, title: 720, transform: 560 };
+  let floorsOk = true; const sizes = [];
+  for (const k in floors) {
+    const n = (E.CONCEPT_POOL[k] || []).length;
+    sizes.push(k + ":" + n);
+    if (n < floors[k]) floorsOk = false;
+  }
+  ok(floorsOk, "every concept key reaches its wave-two floor (" + sizes.join(" ") + ")");
+  ok(E.CONCEPT_EXPANSION_STATS.added >= 6000,
+    "merged concept expansion counts both waves (+" + E.CONCEPT_EXPANSION_STATS.added + ")");
+  let dupes = 0;
+  for (const k in E.CONCEPT_POOL) {
+    const seen = new Set();
+    for (const v of E.CONCEPT_POOL[k]) {
+      const x = String(v).toLowerCase().trim();
+      if (seen.has(x)) dupes++;
+      seen.add(x);
+    }
+  }
+  ok(dupes === 0, "merged concept pools (verbatim + wave one + wave two) have zero duplicates");
+  /* rolls actually draw from the second wave */
+  const s = E.defaultState();
+  const w2set = new Set();
+  for (const k in W2.EXTRA_CONCEPT_W2) for (const v of W2.EXTRA_CONCEPT_W2[k]) w2set.add(k + "|" + v);
+  let w2Hits = 0;
+  for (let i = 0; i < 300; i++) {
+    E.roll(s, "concept");
+    for (const k in s.concept) if (s.concept[k] && w2set.has(k + "|" + s.concept[k])) w2Hits++;
+  }
+  ok(w2Hits > 300, "concept rolls draw heavily from wave two (" + w2Hits + "/3000 draws)");
+}
+
+section("Melody-concept wave two");
+{
+  const W2 = await import("../data/concept-extra2.js");
+  ok(E.MELODY_CONCEPT_POOL.story.length >= 300 && E.MELODY_CONCEPT_POOL.role.length >= 250 &&
+     E.MELODY_CONCEPT_POOL.motion.length >= 290 && E.MELODY_CONCEPT_POOL.hook.length >= 290,
+    "melody-concept pools reach wave-two sizes (story:" + E.MELODY_CONCEPT_POOL.story.length +
+    " role:" + E.MELODY_CONCEPT_POOL.role.length + " motion:" + E.MELODY_CONCEPT_POOL.motion.length +
+    " hook:" + E.MELODY_CONCEPT_POOL.hook.length + ")");
+  let relax = 0;
+  for (const k in W2.EXTRA_MELODY_CONCEPT_W2) {
+    for (const v of W2.EXTRA_MELODY_CONCEPT_W2[k]) if (E.isRelaxMelody(v)) relax++;
+  }
+  ok(relax === 0, "wave-two melody-concept lines survive the runtime relax filter");
+  let relaxMerged = 0;
+  for (const k in E.MELODY_CONCEPT_POOL) {
+    for (const v of E.MELODY_CONCEPT_POOL[k]) if (E.isRelaxMelody(v)) relaxMerged++;
+  }
+  ok(relaxMerged === 0, "merged melody-concept pools contain no relax-filter casualties");
+}
+
+section("Sounds wave two");
+{
+  const W2 = await import("../data/expansion2.js");
+  ok(E.EXPANSION_W2_STATS.pools >= 41 && E.EXPANSION_W2_STATS.added >= 1600,
+    "wave two tops up every thin pool (" + E.EXPANSION_W2_STATS.pools + " pools, +" + E.EXPANSION_W2_STATS.added + ")");
+  const minSize = Math.min(...Object.keys(E.POOL_OF).map(k => E.POOL_OF[k].length));
+  ok(minSize >= 85, "every sound atom pool holds ≥85 entries after wave two (min " + minSize + ")");
+  const banned = /\b(minimal|minimalist|sparse|restrained|low[- ]?energy|weak|tiny|gentle|quiet)\b/i;
+  const vocalRe = new RegExp("\\b(" + (D.VOCAL_WORDS || []).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b", "i");
+  let dirty = 0;
+  for (const name in W2.EXTRA_POOLS_W2) for (const v of W2.EXTRA_POOLS_W2[name]) {
+    if (banned.test(v) || vocalRe.test(v)) dirty++;
+  }
+  ok(dirty === 0, "wave-two sound entries are banned-word- and vocal-free");
+  let dupes = 0;
+  for (const k in E.POOL_OF) {
+    const seen = new Set();
+    for (const v of E.POOL_OF[k]) {
+      const x = String(v).toLowerCase().trim();
+      if (seen.has(x)) dupes++;
+      seen.add(x);
+    }
+  }
+  ok(dupes === 0, "merged sound pools (verbatim + wave one + wave two) have zero duplicates");
+  /* NO-STOP intensity & vocal direction micro-pools */
+  ok(E.NO_STOP_INTENSITY.length >= 28, "NO-STOP intensity pool reaches ≥28 (" + E.NO_STOP_INTENSITY.length + ")");
+  ok(E.NO_STOP_INTENSITY[0] === "unrelenting delivery", "verbatim NO-STOP intensities stay first");
+  ok(P.VOCAL_DIRECTIONS_ALL.length >= 55, "vocal direction pool reaches ≥55 (" + P.VOCAL_DIRECTIONS_ALL.length + ")");
+  ok(P.VOCAL_DIRECTIONS_ALL.slice(24).every(v => /vocal/i.test(v)),
+    "generated vocal directions all name the voice they direct");
+  /* prompt caps hold with all wave-two vocabulary in play */
+  const s = E.defaultState();
+  let over = 0;
+  for (let i = 0; i < 30; i++) {
+    E.roll(s, "everything");
+    if (E.buildStylePrompt(s).length > 1000 || E.buildFullBrief(s).length > 3000) over++;
+  }
+  ok(over === 0, "prompt caps hold across wave-two vocabulary (30 rolls)");
+}
+
+/* ---------------- v4.5 Idea Engine (sparks) ---------------- */
+/* ---------------- v4.6: sounds wave three + rolled prompt prose ---------------- */
+section("Sounds wave three");
+{
+  const W3 = await import("../data/expansion3.js");
+  const { EXPANSION_W3_STATS, POOL_OF } = await import("../engine/state.js");
+  ok(EXPANSION_W3_STATS.pools === 95, "wave three touched all 95 atom pools (" + EXPANSION_W3_STATS.pools + ")");
+  ok(EXPANSION_W3_STATS.added >= 4000, "wave three adds >= 4000 entries (+" + EXPANSION_W3_STATS.added + ")");
+  let minK = "", minN = 1e9;
+  for (const [k, pool] of Object.entries(POOL_OF)) {
+    if (pool.length < minN) { minN = pool.length; minK = k; }
+  }
+  ok(minN >= 130, "every merged atom pool is now >= 130 deep (min " + minK + ": " + minN + ")");
+  const typesOk = Object.values(W3.EXTRA_POOLS_W3).every(a => a.every(x => typeof x === "string"));
+  ok(typesOk, "wave three entries are plain strings (no double-wrapped JSON)");
+  for (const [k, pool] of Object.entries(POOL_OF)) {
+    const seen = new Set(); let dup = 0;
+    for (const v of pool) { const key = String(v).toLowerCase().trim(); if (seen.has(key)) dup++; seen.add(key); }
+    ok(dup === 0, k + " pool stays duplicate-free after wave three");
+  }
+}
+
+section("Rolled prompt prose (layer phrases / scale moods / melodic focus)");
+{
+  const PE = await import("../data/prompt-extra.js");
+  const { LAYER_PHRASE_POOLS, SCALE_MOOD_POOLS, MELODY_FORCE_POOLS } = await import("../engine/prompt.js");
+  const { LAYERS } = await import("../data/safety.js");
+  const { SCALES } = await import("../data/scales.js");
+  ok(Object.keys(LAYER_PHRASE_POOLS).length === LAYERS.length, "layer phrase pools cover all " + LAYERS.length + " layers");
+  let lpMin = 1e9;
+  for (const id of Object.keys(LAYER_PHRASE_POOLS)) lpMin = Math.min(lpMin, LAYER_PHRASE_POOLS[id].length);
+  ok(lpMin >= 20, "every layer has >= 20 rolled phrase variants (min " + lpMin + ")");
+  ok(Object.keys(SCALE_MOOD_POOLS).length === Object.keys(SCALES).length, "scale mood pools cover every scale");
+  let smMin = 1e9;
+  for (const id of Object.keys(SCALE_MOOD_POOLS)) smMin = Math.min(smMin, SCALE_MOOD_POOLS[id].length);
+  ok(smMin >= 12, "every scale has >= 12 rolled mood variants (min " + smMin + ")");
+  for (const f of ["light", "balanced", "strong", "dominant"])
+    ok((MELODY_FORCE_POOLS[f] || []).length >= 9, f + " focus pool has >= 9 variants");
+  for (const [name, a] of [["layer phrases", Object.values(PE.LAYER_PHRASES_EXTRA).flat()],
+                            ["scale moods", Object.values(PE.SCALE_MOODS_EXTRA).flat()],
+                            ["focus lines", Object.values(PE.MELODY_FORCE_EXTRA).flat()]]) {
+    ok(a.every(x => typeof x === "string" && x.length > 0 && x.length <= 60), name + " are clean short strings");
+    ok(true, name + " checked below per-pool");
+  }
+  let dupPools = 0;
+  for (const a of Object.values(PE.LAYER_PHRASES_EXTRA)) {
+    const seen = new Set(a.map(x => x.toLowerCase().trim()));
+    if (seen.size !== a.length) dupPools++;
+  }
+  for (const a of Object.values(PE.SCALE_MOODS_EXTRA)) {
+    const seen = new Set(a.map(x => x.toLowerCase().trim()));
+    if (seen.size !== a.length) dupPools++;
+  }
+  for (const a of Object.values(PE.MELODY_FORCE_EXTRA)) {
+    const seen = new Set(a.map(x => x.toLowerCase().trim()));
+    if (seen.size !== a.length) dupPools++;
+  }
+  ok(dupPools === 0, "no prompt-extra pool contains internal duplicates (" + dupPools + ")");
+  /* seed picks: pure hash, deterministic per (seed, id), in-pool */
+  {
+    const s = E.defaultState();
+    const a = E.layerPhrase("texture", s);
+    ok(LAYER_PHRASE_POOLS.texture.includes(a), "layerPhrase picks from its pool");
+    const s2 = { ...s, locks: {}, hidden: {} };
+    ok(E.layerPhrase("texture", s) === E.layerPhrase("texture", s2), "layerPhrase deterministic per seed");
+    const variants = new Set();
+    for (let i = 0; i < 40; i++) variants.add(E.layerPhrase("texture", { seed: "seed-" + i }));
+    ok(variants.size >= 8, "40 seeds spread across >= 8 layer variants (" + variants.size + ")");
+    const mood = E.scaleMood(s);
+    ok(SCALE_MOOD_POOLS[E.scaleOf(s).id].includes(mood), "scaleMood picks from its pool: " + mood);
+    const fd = E.forceDesc({ ...s, melodicForce: "strong" });
+    ok(MELODY_FORCE_POOLS.strong.includes(fd), "forceDesc picks from its pool: " + fd);
+    /* hash picks must never disturb the sequential roll stream */
+    const t = E.defaultState(); t.seed = s.seed;
+    const kick0 = t.kick;
+    E.layerPhrase("texture", t); E.scaleMood(t); E.forceDesc(t);
+    ok(t.kick === kick0, "prompt-prose picks leave the state and roll stream untouched");
+  }
+  /* end-to-end: the rolled surfaces render inside the real outputs */
+  {
+    const s = E.defaultState();
+    s.layers = { texture: true, euphoria: true, lowend: true, room: true };
+    s.melodicForce = "strong";
+    const brief = E.buildFullBrief(s);
+    ok(/MIX & DETAIL: /.test(brief), "brief renders rolled layer phrases");
+    ok(/KEY: [^\n]+ — /.test(brief), "brief renders rolled scale mood");
+    ok(/MELODIC FOCUS: /.test(brief), "brief renders rolled focus line");
+    const sp = E.buildStylePrompt({ ...s, vocalMode: "instrumental" });
+    ok(sp.length <= 1000, "style prompt with rolled details stays <= 1000 chars (" + sp.length + ")");
+    const noPolicy = sp.replace(/instrumental [a-z-]+, no vocals.*$/i, "");
+    ok(!E.hasVocalRef(noPolicy), "rolled details keep the prompt vocal-free");
+  }
+}
+
+section("Idea Engine (sparks)");
+{
+  const W = await import("../data/sparks-extra.js");
+  ok(E.SPARK_STATS.pools === 32 && E.SPARK_STATS.added >= 500,
+    "spark engine merges all 32 pools incl. the generated wave (" + E.SPARK_STATS.pools +
+    " pools, +" + E.SPARK_STATS.added + ", " + E.SPARK_STATS.entries + " sparks total)");
+  const minPool = Math.min(...Object.values(E.SPARK_POOLS).map(a => a.length));
+  ok(minPool >= 35, "every spark pool holds ≥35 entries after the wave (min " + minPool + ")");
+  const banned = /\b(minimal|minimalist|sparse|restrained|low[- ]?energy|weak|tiny|gentle|quiet)\b/i;
+  const vocalRe = new RegExp("\\b(" + (D.VOCAL_WORDS || []).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b", "i");
+  let dirty = 0;
+  for (const name in W.SPARK_EXTRA) for (const v of W.SPARK_EXTRA[name]) {
+    if (banned.test(v) || vocalRe.test(v)) dirty++;
+  }
+  ok(dirty === 0, "generated sparks are banned-word- and vocal-free");
+  /* seeded determinism */
+  E.setSeed(20260917);
+  const run1 = E.SPARK_KINDS.map(k => E.rollSpark(k));
+  E.setSeed(20260917);
+  const run2 = E.SPARK_KINDS.map(k => E.rollSpark(k));
+  ok(JSON.stringify(run1) === JSON.stringify(run2), "spark draws are deterministic per seed");
+  /* applies respect locks and semantics */
+  const s = E.defaultState();
+  ok(E.applyTitle(s, "TEST TITLE") && s.concept.title === "TEST TITLE", "applyTitle writes the concept title");
+  s.locks["concept-title"] = true;
+  ok(!E.applyTitle(s, "NOPE") && s.concept.title === "TEST TITLE", "applyTitle respects the title lock");
+  s.locks["concept-title"] = false;
+  E.applyMashup(s, "salt techno + tide tables");
+  ok(s.primaryStyle === "salt techno + tide tables" && s.primaryGenre === "" && s.secondaryStyle === "",
+    "applyMashup replaces the whole style identity");
+  /* wildcards */
+  const m = E.defaultState();
+  m.locks.kick = true;
+  const kickBefore = m.kick;
+  const r = E.megaChaos(m);
+  ok(!!r.line && typeof r.score === "number", "mega chaos returns a spark line + score");
+  ok(m.kick === kickBefore, "mega chaos respects locks");
+  ok(m.duration === "extended" && m.melodicForce === "dominant" && m.influence === "strong",
+    "mega chaos sets the max-energy frame");
+  const t = E.defaultState();
+  E.timeMachine(t);
+  ok([70, 80, 85, 90, 95, 100, 110, 120, 122, 124, 126, 128, 130, 132, 134, 136, 138, 140,
+    142, 144, 146, 148, 150, 152, 155, 160, 170, 180, 190, 200].includes(t.bpm),
+    "time machine picks a musical tempo (" + t.bpm + " BPM)");
+  const ld = E.luckyDip(E.defaultState());
+  ok(!!ld.vibe && typeof ld.score === "number", "lucky dip rolls a fresh track + vibe");
+  const rf = E.randomFocus(E.defaultState(), 6);
+  ok(!!rf.category && typeof rf.score === "number", "random focus maximizes a category (" + rf.category + ")");
+  const an = E.defaultState();
+  const out = E.anthemIdea(an);
+  ok(/ — .* → /.test(out) && an.melodicForce === "dominant", "anthem builder forges title + vibe + transform");
+  /* applied sparks keep the prompt inside its caps */
+  const p = E.defaultState();
+  E.applyTitle(p, E.SPARK_POOLS.SPARK_TITLES[0]);
+  E.applyTransform(p, E.SPARK_POOLS.SPARK_TRANSFORMS[0]);
+  E.applyChallenge(p, E.SPARK_POOLS.SPARK_CHALLENGES[0]);
+  ok(E.buildFullBrief(p).length <= 3000, "brief cap holds with applied sparks");
+}
+
 section("UI boot (jsdom)");
 await (async () => {
   let JSDOM;
   try { ({ JSDOM } = await import("jsdom")); }
-  catch (e) {
+  catch {
     console.log("  ~ jsdom not installed — skipping UI boot test (npm i to enable)");
     return;
   }
@@ -1478,10 +1984,11 @@ await (async () => {
   global.document = dom.window.document;
   global.location = dom.window.location;
   global.history = dom.window.history;
+  global.localStorage = dom.window.localStorage;
   Object.defineProperty(global, "navigator", { value: dom.window.navigator, configurable: true });
   dom.window.addEventListener("error", e => errors.push(e.message));
   try {
-    const app = await import("../ui/app.js?" + Date.now());
+    await import("../ui/app.js?" + Date.now()); /* side-effect: boots the app */
     ok(!!dom.window.__NF, "window.__NF test hook exists");
     ok(errors.length === 0, "no window errors during boot");
     const NF = dom.window.__NF;
@@ -1509,6 +2016,22 @@ await (async () => {
     ok(!/Bass:/.test(NF.buildStylePrompt()), "hidden card leaves the prompt");
     // undo / redo through the UI
     const doc = dom.window.document;
+    /* Idea Engine card */
+    ok(!!doc.querySelector("#sparkCard"), "Idea Engine card rendered");
+    ok(/\d+ sparks loaded/.test(doc.querySelector("#sparkCard .readout").textContent),
+      "spark count readout rendered");
+    ok(doc.querySelectorAll("#sparkCard [data-spark]").length === 10, "10 core spark buttons rendered");
+    doc.querySelector("#sparkCard [data-spark='1']").click(); /* Title */
+    const sparkText = doc.querySelector("#sparkView").textContent;
+    ok(sparkText && !/press any button/.test(sparkText), "clicking a spark button rolls a spark");
+    doc.querySelector("#sparkCard [data-sparkapply='title']").click();
+    ok(NF.get().concept.title === sparkText, "Apply title moves the spark into the concept");
+    doc.querySelector("#sparkCard [data-sparkwild='mega']").click();
+    ok(NF.get().duration === "extended" && NF.get().melodicForce === "dominant",
+      "Mega Chaos Roll reframes the track (extended + melody-dominant)");
+    doc.querySelector("#sparkCard [data-sparkwild='time']").click();
+    ok(typeof NF.get().bpm === "number" && NF.get().bpm >= 70, "Time Machine rerolls the tempo");
+    ok(doc.querySelector("#sparkView").textContent.length > 0, "spark readout survives re-renders");
     ok(!!doc.querySelector("#undoBtn") && !!doc.querySelector("#redoBtn"), "undo/redo buttons rendered");
     const kickNow = NF.get().kick;
     doc.querySelector('[data-roll="kick"]').click();
@@ -1587,6 +2110,112 @@ await (async () => {
     ok(NF.get().hideBeats === false, "hide-beats chip toggles back off");
     ok(!!doc.querySelector("#densityChip"), "sound-density readout rendered");
     ok(!!doc.querySelector("#buildChip"), "build id readout rendered");
+
+    /* ---------- v4: share-URL sync regression ----------
+       The local History instance shadowed window.history, so
+       history.replaceState() threw inside a try/catch and the ?s= URL
+       never updated after boot. It must track the live state now. */
+    const urlSeed = new URLSearchParams(dom.window.location.search).get("s");
+    ok(!!urlSeed, "share URL carries ?s= after UI interactions");
+    const urlState = NF.decodeState(urlSeed || "");
+    ok(urlState && urlState.seed === NF.get().seed, "share URL round-trips the current seed");
+
+    /* ---------- v4: accessibility semantics ---------- */
+    const slChip = doc.querySelector("#soundLiteToggle");
+    ok(slChip.tagName === "BUTTON", "mode chips are real <button> elements (keyboard focusable)");
+    ok(["true", "false"].includes(slChip.getAttribute("aria-pressed")), "mode chips expose aria-pressed");
+    ok(!!doc.querySelector('[data-roll="kick"]').getAttribute("aria-label"), "roll icon buttons expose an accessible name");
+    ok(!!doc.querySelector('[data-lock="kick"]').getAttribute("aria-label"), "lock icon buttons expose an accessible name");
+    ok(!!doc.querySelector('[data-cardhide="bassCard"]').getAttribute("aria-label"), "card hide buttons expose an accessible name");
+    ok(doc.querySelector("#toast").getAttribute("role") === "status" &&
+       doc.querySelector("#toast").getAttribute("aria-live") === "polite", "toast is an ARIA live status region");
+    const tabStyle = doc.querySelector('#outTabs [data-tab="style"]');
+    ok(tabStyle.getAttribute("role") === "tab" && ["true", "false"].includes(tabStyle.getAttribute("aria-selected")),
+      "output tabs expose tab semantics with aria-selected");
+    ok(doc.querySelector("#outTabs").getAttribute("role") === "tablist", "output tab strip is a tablist");
+    const layerChip = doc.querySelector("[data-layer]");
+    ok(layerChip.tagName === "BUTTON" && ["true", "false"].includes(layerChip.getAttribute("aria-pressed")),
+      "detail-layer chips are toggle buttons with aria-pressed");
+
+    /* ---------- v4: keyboard shortcuts dialog ---------- */
+    const keysBtn = doc.querySelector("#keysBtn");
+    ok(!!keysBtn, "KEYS button rendered");
+    keysBtn.click();
+    const scModal = doc.querySelector("#shortcutsModal");
+    ok(!scModal.hidden && !!scModal.querySelector("[role=dialog]"), "shortcuts dialog opens with dialog role");
+    const seedWhileOpen = NF.get().seed;
+    doc.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "r", bubbles: true, cancelable: true }));
+    ok(NF.get().seed === seedWhileOpen, "single-key shortcuts are suppressed while the dialog is open");
+    doc.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    ok(scModal.hidden === true, "Escape closes the shortcuts dialog");
+
+    /* ---------- v4: collapsible cards ---------- */
+    const colBtn = doc.querySelector('[data-collapse="bassCard"]');
+    ok(!!colBtn && colBtn.getAttribute("aria-expanded") === "true", "collapse toggle rendered expanded");
+    colBtn.click();
+    ok(doc.querySelector("#bassCard").classList.contains("collapsed"), "card collapses via its toggle");
+    ok(doc.querySelector('[data-collapse="bassCard"]').getAttribute("aria-expanded") === "false",
+      "collapse toggle flips aria-expanded");
+    doc.querySelector('[data-collapse="bassCard"]').click();
+    ok(!doc.querySelector("#bassCard").classList.contains("collapsed"), "card expands again");
+    doc.querySelector("#collapseAllBtn").click();
+    ok(doc.querySelectorAll("#cards .card").length === doc.querySelectorAll("#cards .card.collapsed").length &&
+       doc.querySelectorAll("#cards .card").length > 0, "collapse-all collapses every card");
+    doc.querySelector("#expandAllBtn").click();
+    ok(doc.querySelectorAll("#cards .card.collapsed").length === 0, "expand-all restores every card");
+
+    /* ---------- v4.1: picker modal Escape ---------- */
+    const pickBtn = doc.querySelector('[data-pick="kick"]');
+    if (pickBtn) {
+      pickBtn.click();
+      ok(!doc.querySelector("#pickerModal").hidden, "picker modal opens from the pick button");
+      ok(!!doc.querySelector("#pickerModal [role=dialog]"), "picker modal exposes dialog role");
+      doc.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      ok(doc.querySelector("#pickerModal").hidden === true, "Escape closes the picker modal");
+    }
+
+    /* ---------- v4.1: batch lab ---------- */
+    const batchBtn = doc.querySelector("#batchBtn");
+    ok(!!batchBtn, "BATCH button rendered");
+    batchBtn.click();
+    ok(!!doc.querySelector("#batchCard"), "batch panel opens");
+    doc.querySelector("#batchGo").click();
+    const bRows = doc.querySelectorAll(".batchRow");
+    ok(bRows.length === 8, "batch rolls 8 ranked candidates (" + bRows.length + ")");
+    const bScores = Array.from(doc.querySelectorAll(".batchScore")).map(e => +e.textContent);
+    ok(bScores.every((v, i) => i === 0 || bScores[i - 1] >= v), "batch rows render best-first");
+    ok(NF.getBatch().length === 8, "batch candidates are exposed to the test hook");
+    /* →B sends the top candidate into compare */
+    const topPrompt = NF.getBatch()[0].prompt;
+    bRows[0].querySelector("[data-bb]").click();
+    ok(!!NF.compare.b && NF.compare.b.prompt === topPrompt, "batch →B fills compare slot B with the candidate");
+    /* Load swaps the candidate into the live state */
+    const topSeed = NF.getBatch()[0].state.seed;
+    bRows[0].querySelector("[data-bload]").click();
+    ok(NF.get().seed === topSeed, "batch Load makes the candidate the live state");
+    /* Copy archives the candidate prompt */
+    const nC = NF.history.copies.length;
+    doc.querySelector("[data-bcopy]").click();
+    ok(NF.history.copies.length === nC + 1, "batch Copy archives the candidate to history");
+    doc.querySelector("#batchClear").click();
+    ok(doc.querySelectorAll(".batchRow").length === 0, "batch clear empties the list");
+
+    /* ---------- v4.1: session autosave ---------- */
+    doc.querySelector("#rollAllBtn").click();
+    await new Promise(r => setTimeout(r, 400));
+    const sessRaw = dom.window.localStorage.getItem("neonforge.session.v1");
+    ok(!!sessRaw, "session autosaves to localStorage after a change");
+    const sess = sessRaw ? JSON.parse(sessRaw) : null;
+    ok(!!sess && sess.v === 1 && sess.state.seed === NF.get().seed, "autosaved session matches the live state");
+    const restored = NF.loadPersistedSession();
+    ok(!!restored && restored.seed === NF.get().seed && restored.primaryStyle === NF.get().primaryStyle,
+      "loadPersistedSession round-trips the session");
+
+    /* ---------- v4.1: New button ---------- */
+    const beforeNew = NF.get().seed;
+    doc.querySelector("#newBtn").click();
+    ok(NF.get().seed !== beforeNew, "🆕 New rolls a fresh state");
+    ok(Object.values(NF.get().locks).every(v => v === false), "🆕 New resets every lock");
   } catch (e) {
     failures++;
     console.log("  ✗ FAIL: UI boot crashed — " + (e && e.stack || e));

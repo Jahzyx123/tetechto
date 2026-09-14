@@ -11,6 +11,8 @@
    A snapshot of the text is kept alongside purely for the preview line
    and for search. */
 
+import { clone } from "../engine/state.js";
+
 const LS_KEY = "neonforge.library.v1";
 const MAX_ENTRIES = 500;
 
@@ -19,11 +21,11 @@ function load() {
     const raw = globalThis.localStorage && localStorage.getItem(LS_KEY);
     const arr = raw ? JSON.parse(raw) : [];
     return Array.isArray(arr) ? arr : [];
-  } catch (e) { return []; }
+  } catch { return []; }
 }
 function save(list) {
   try { globalThis.localStorage && localStorage.setItem(LS_KEY, JSON.stringify(list)); return true; }
-  catch (e) { return false; }  /* quota exceeded — caller surfaces a toast */
+  catch { return false; }  /* quota exceeded — caller surfaces a toast */
 }
 
 function uid() {
@@ -60,7 +62,7 @@ export class Library {
       bpm: state.bpm || 0,
       score: score || 0,
       preview: String(prompt || "").slice(0, 160),
-      state: JSON.parse(JSON.stringify(state))
+      state: clone(state)
     };
     this.entries.unshift(entry);
     if (this.entries.length > MAX_ENTRIES) this.entries.length = MAX_ENTRIES;
@@ -95,7 +97,7 @@ export class Library {
      yours. Entries already present (same id) are skipped. */
   importJSON(text) {
     let data;
-    try { data = JSON.parse(text); } catch (e) { return { ok: false, added: 0, error: "Not valid JSON" }; }
+    try { data = JSON.parse(text); } catch { return { ok: false, added: 0, error: "Not valid JSON" }; }
     const incoming = Array.isArray(data) ? data : (data && data.entries);
     if (!Array.isArray(incoming)) return { ok: false, added: 0, error: "No entries found" };
     const have = new Set(this.entries.map(e => e.id));

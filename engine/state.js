@@ -25,7 +25,11 @@ import {
   CONCEPT
 } from "../data/index.js";
 import { EXTRA_POOLS } from "../data/expansion.js";
+import { EXTRA_POOLS_W2, EXTRA_NO_STOP_INTENSITY_W2 } from "../data/expansion2.js";
+import { EXTRA_POOLS_W3 } from "../data/expansion3.js";
 import { EXTRA_MELODY_CONCEPT, EXTRA_MELODY_POOLS } from "../data/melody-extra.js";
+import { EXTRA_CONCEPT, EXTRA_MELODY_CONCEPT_MORE } from "../data/concept-extra.js";
+import { EXTRA_CONCEPT_W2, EXTRA_MELODY_CONCEPT_W2 } from "../data/concept-extra2.js";
 import { ORGANIC_POOLS, HYBRID_POOLS } from "../data/acoustic.js";
 import { genreWorld } from "./world.js";
 import * as DATA from "../data/index.js";
@@ -36,6 +40,17 @@ import {
   tempoForGenre, pickScaleId, rollBpmValue, pickArrangementFor, pickNoStopArrangement,
   _setHandPercPredicate
 } from "./genre.js";
+
+/* ---------------------------- FAST DEEP CLONE ----------------------------
+   One clone helper for the whole app. structuredClone is ~2x faster than
+   a JSON round-trip and it sits on the hot path: MAX at 192× clones the
+   full state once per try, and undo/library/compare snapshot on every
+   commit. JSON fallback keeps older runtimes working — app state is
+   JSON-safe by design (that is also what share links rely on). */
+export function clone(obj) {
+  if (typeof structuredClone === "function") return structuredClone(obj);
+  return JSON.parse(JSON.stringify(obj));
+}
 
 /* ---------------------------- ROLL FUNCTIONS ----------------------------
    One roll function per atom key. Special keys (style/combos/key/concepts)
@@ -77,14 +92,39 @@ export const POOL_OF = {
    extracted modules stay byte-identical to the legacy source. */
 const POOL_NAME_OF = new Map();
 for (const n in DATA) { if (Array.isArray(DATA[n])) POOL_NAME_OF.set(DATA[n], n); }
+/* Resolve each atom key → its verbatim pool name ONCE, before any loop
+   replaces POOL_OF[k] with a concatenated (new) array. Re-resolving after
+   replacement returns undefined and silently drops the merge — which is
+   exactly why the melody extras below never landed before. */
+const POOL_KEY_NAME = {};
+for (const k in POOL_OF) POOL_KEY_NAME[k] = POOL_NAME_OF.get(POOL_OF[k]);
 export const EXPANSION_STATS = { pools: 0, added: 0 };
 for (const k in POOL_OF) {
-  const extra = EXTRA_POOLS[POOL_NAME_OF.get(POOL_OF[k])];
+  const extra = EXTRA_POOLS[POOL_KEY_NAME[k]];
   if (extra && extra.length) {
     POOL_OF[k] = POOL_OF[k].concat(extra);
     EXPANSION_STATS.pools++; EXPANSION_STATS.added += extra.length;
   }
 }
+/* Sounds waves two and three: append-after order keeps every entry
+   reachable; dedupe is handled per-entry below. */
+export const EXPANSION_W2_STATS = { pools: 0, added: 0 };
+export const EXPANSION_W3_STATS = { pools: 0, added: 0 };
+function mergeWave(stats, wave) {
+  for (const k in POOL_OF) {
+    const extra = wave[POOL_KEY_NAME[k]];
+    if (extra && extra.length) {
+      const have = new Set(POOL_OF[k].map(x => String(x).toLowerCase().trim()));
+      const add = extra.filter(x => !have.has(String(x).toLowerCase().trim()));
+      if (add.length) {
+        POOL_OF[k] = POOL_OF[k].concat(add);
+        stats.pools++; stats.added += add.length;
+      }
+    }
+  }
+}
+mergeWave(EXPANSION_W2_STATS, EXTRA_POOLS_W2);
+mergeWave(EXPANSION_W3_STATS, EXTRA_POOLS_W3);
 
 /* ------------------------- MELODY INTENSITY -------------------------
    The melody upgrade: intense, complex phrasing everywhere the melody
@@ -122,19 +162,39 @@ export function withoutRelaxMelody(arr) {
 }
 export const MELODY_EXPANSION_STATS = { pools: 0, added: 0 };
 for (const k in POOL_OF) {
-  const nm = POOL_NAME_OF.get(POOL_OF[k]);
+  const nm = POOL_KEY_NAME[k];
   const extra = EXTRA_MELODY_POOLS[nm];
   if (extra && extra.length && MELODY_KEYS.has(k)) {
     POOL_OF[k] = POOL_OF[k].concat(extra);
     MELODY_EXPANSION_STATS.pools++; MELODY_EXPANSION_STATS.added += extra.length;
   }
 }
-/* Melody-concept pools: verbatim + generated extras, relax entries
+/* Melody-concept pools: verbatim + all generated waves, relax entries
    filtered, memoised once at module load. */
 export const MELODY_CONCEPT_POOL = {};
 for (const k in MELODY_CONCEPT) {
   MELODY_CONCEPT_POOL[k] = withoutRelaxMelody(
-    MELODY_CONCEPT[k].concat(EXTRA_MELODY_CONCEPT[k] || []));
+    MELODY_CONCEPT[k]
+      .concat(EXTRA_MELODY_CONCEPT[k] || [])
+      .concat(EXTRA_MELODY_CONCEPT_MORE[k] || [])
+      .concat(EXTRA_MELODY_CONCEPT_W2[k] || []));
+}
+
+/* ---------------------------- CONCEPT EXPANSION ----------------------------
+   The concept card used to roll from the verbatim pools only (27–93 entries
+   per key). data/concept-extra.js adds thousands of generated entries on
+   top, deduped case-insensitively once at load; the verbatim pools stay
+   untouched and always come first. */
+export const CONCEPT_POOL = {};
+export const CONCEPT_EXPANSION_STATS = { keys: 0, added: 0 };
+for (const k in CONCEPT) {
+  const base = new Set(CONCEPT[k].map(x => String(x).toLowerCase().trim()));
+  const extra = (EXTRA_CONCEPT[k] || []).filter(x => !base.has(String(x).toLowerCase().trim()));
+  for (const v of extra) base.add(String(v).toLowerCase().trim());
+  const extra2 = (EXTRA_CONCEPT_W2[k] || []).filter(x => !base.has(String(x).toLowerCase().trim()));
+  CONCEPT_POOL[k] = CONCEPT[k].concat(extra).concat(extra2);
+  CONCEPT_EXPANSION_STATS.keys++;
+  CONCEPT_EXPANSION_STATS.added += extra.length + extra2.length;
 }
 
 /* ---------------------------- WORLD-AWARE POOLS ----------------------------
@@ -216,12 +276,34 @@ export function withoutNoStop(arr) {
   return out;
 }
 
+/* Ultra-delivery emotion hygiene: the verbatim pools carry contrast
+   entries ("serene but powerful", "soft and massive") that rightfully
+   survive the relax filter in normal rolls — contrast is musical. Under
+   NO-STOP, though, the emotion line must read max-energy only, so those
+   low-energy words are filtered out of the feeling/flavor/direction rolls
+   at roll time. */
+export const NO_STOP_LOW_ENERGY_RE =
+  /\b(soothing|serene|gentle|lazy|calm|soft|quiet|tender|mellow|peaceful|dreamy)\b/i;
+export const NO_STOP_EMOTION_KEYS = new Set(["feeling", "flavor", "direction"]);
+const _lowEnergyCache = new Map();
+export function withoutLowEnergy(arr) {
+  if (!Array.isArray(arr)) return arr;
+  let out = _lowEnergyCache.get(arr);
+  if (!out) {
+    out = arr.filter(x => !NO_STOP_LOW_ENERGY_RE.test(x));
+    _lowEnergyCache.set(arr, out);
+  }
+  return out;
+}
+
 export function poolFor(s, key) {
   const raw = POOL_OF[key];
   /* the filters wrap whichever world-specific pool ends up selected */
   const clean = p => {
     let q = (s && s.noHandPerc) ? withoutHandPerc(p) : p;
     q = (s && s.noStop) ? withoutNoStop(q) : q;
+    /* NO-STOP ultra delivery: the emotion line stays max-energy only */
+    q = (s && s.noStop && NO_STOP_EMOTION_KEYS.has(key)) ? withoutLowEnergy(q) : q;
     /* melody intensity: simple / relaxed phrasing never rolls */
     return MELODY_KEYS.has(key) ? withoutRelaxMelody(q) : q;
   };
@@ -253,10 +335,13 @@ for (const k in POOL_OF) {
 /* NO-STOP ultra delivery: the intensity knob is forced to continuous
    max-energy phrases so the track reads "full throttle" from bar one to
    the last one instead of building and dipping. */
-export const NO_STOP_INTENSITY = [
+const NO_STOP_INTENSITY_BASE = [
   "unrelenting delivery", "maximum-energy delivery", "relentless forward drive",
   "peak-time sustained force", "wall of relentless energy", "full-force continuous drive"
 ];
+export const NO_STOP_INTENSITY = NO_STOP_INTENSITY_BASE.concat(
+  EXTRA_NO_STOP_INTENSITY_W2.filter(
+    x => !NO_STOP_INTENSITY_BASE.some(v => v.toLowerCase() === String(x).toLowerCase())));
 ROLL_FN.intensity = s => {
   if (s.noStop) s.intensity = pick(NO_STOP_INTENSITY);
   else {
@@ -297,7 +382,7 @@ ROLL_FN.direction = s => {
 ROLL_FN.chordColor = s => { s.scaleId = pickScaleId(s); s.chordColor = scaleOf(s).n; };
 ROLL_FN.rootPc = s => { s.rootPc = Math.floor(random() * 12); };
 ROLL_FN.scaleId = s => { s.scaleId = pickScaleId(s); s.chordColor = scaleOf(s).n; };
-ROLL_FN.concept = s => { for (const k in s.concept) s.concept[k] = pick(CONCEPT[k]); };
+ROLL_FN.concept = s => { for (const k in s.concept) s.concept[k] = pick(CONCEPT_POOL[k] || CONCEPT[k]); };
 ROLL_FN.melodyConcept = s => { if (!s.melodyConcept) s.melodyConcept = {}; for (const k in MELODY_CONCEPT_POOL) s.melodyConcept[k] = pick(MELODY_CONCEPT_POOL[k]); };
 /* composite atoms route through poolFor too, or they leak techno words
    (e.g. a "supersaw stack" counter-melody) into acoustic prompts */
@@ -314,7 +399,7 @@ ROLL_FN["voice-concept"] = s => { if (s.noStop || s.hideBeats) { blankCounter(s)
 ROLL_FN["voice-relation"] = s => { s.voiceRelation = pick(["supports", "follows", "counters"]); };
 ROLL_FN.arrangement = s => { s.arrangement = s.noStop ? pickNoStopArrangement(s) : pickArrangementFor(s); };
 export const CONCEPT_KEYS = ["world", "location", "visual", "narrative", "sensation", "event", "conflict", "crowd", "title", "transform"];
-CONCEPT_KEYS.forEach(k => { ROLL_FN["concept-" + k] = s => { s.concept[k] = pick(CONCEPT[k]); }; });
+CONCEPT_KEYS.forEach(k => { ROLL_FN["concept-" + k] = s => { s.concept[k] = pick(CONCEPT_POOL[k] || CONCEPT[k]); }; });
 ["story", "role", "motion", "hook"].forEach(k => { ROLL_FN["melodyConcept-" + k] = s => { if (!s.melodyConcept) s.melodyConcept = {}; s.melodyConcept[k] = pick(MELODY_CONCEPT_POOL[k] || MELODY_CONCEPT[k]); }; });
 
 /* ---------------------------- GROUPS ---------------------------- */

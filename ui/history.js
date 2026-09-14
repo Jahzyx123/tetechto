@@ -8,11 +8,11 @@
    you liked enough to paste into Suno is always recoverable — click it in
    the History panel to restore that exact state (and its seed). */
 
+import { clone } from "../engine/state.js";
+
 const MAX_STEPS = 100;
 const MAX_COPIES = 40;
 const LS_KEY = "neonforge.copies.v1";
-
-const clone = s => JSON.parse(JSON.stringify(s));
 
 export class History {
   constructor(initial) {
@@ -93,10 +93,10 @@ function loadCopies() {
     const raw = globalThis.localStorage && localStorage.getItem(LS_KEY);
     const arr = raw ? JSON.parse(raw) : [];
     return Array.isArray(arr) ? arr : [];
-  } catch (e) { return []; }
+  } catch { return []; }
 }
 function saveCopies(list) {
-  try { globalThis.localStorage && localStorage.setItem(LS_KEY, JSON.stringify(list)); } catch (e) { }
+  try { globalThis.localStorage && localStorage.setItem(LS_KEY, JSON.stringify(list)); } catch { }
 }
 
 /* Ctrl/Cmd+Z = undo, Ctrl/Cmd+Y or Ctrl/Cmd+Shift+Z = redo.

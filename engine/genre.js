@@ -10,6 +10,7 @@
 import { STYLES as BASE_STYLES, GENRES as BASE_GENRES, TEMPO_RULES, WEIRD_MIX, SCALE_TIERS } from "../data/styles.js";
 import { EXTRA_STYLES, EXTRA_GENRES, EXTRA_SUBS } from "../data/styles-extra.js";
 import { ARRANGEMENTS } from "../data/concept.js";
+import { EXTRA_ARRANGEMENTS, EXTRA_NO_STOP_ARRANGEMENTS } from "../data/structure-extra.js";
 import { random, pick } from "./prng.js";
 
 /* ---------------------------- POOL EXPANSION ----------------------------
@@ -135,13 +136,24 @@ export function rollBpmValue() {
   if (r < 0.75) return 138 + Math.floor(random() * 11);
   return 150 + Math.floor(random() * 11);
 }
+/* Arrangement pools: the 40 verbatim chains plus the generated structure
+   wave. The generated entries carry intros, so they join the NON-fast-start
+   half (index FAST_START..) — the first 12 verbatim entries stay the only
+   instant-start shapes. Dedupe is done once at load, case-insensitively. */
+function dedupeAppend(base, extra) {
+  const seen = new Set(base.map(x => String(x).toLowerCase().trim()));
+  const add = extra.filter(x => !seen.has(String(x).toLowerCase().trim()));
+  return base.concat(add);
+}
+export const ARRANGEMENTS_FULL = dedupeAppend(ARRANGEMENTS.slice(), EXTRA_ARRANGEMENTS);
+
 export function pickArrangementFor(s) {
   const FAST_START = 12;
   let a;
-  if (random() < 0.68 && ARRANGEMENTS.length > FAST_START) {
-    a = ARRANGEMENTS[FAST_START + Math.floor(random() * (ARRANGEMENTS.length - FAST_START))];
+  if (random() < 0.68 && ARRANGEMENTS_FULL.length > FAST_START) {
+    a = ARRANGEMENTS_FULL[FAST_START + Math.floor(random() * (ARRANGEMENTS_FULL.length - FAST_START))];
   } else {
-    a = pick(ARRANGEMENTS);
+    a = pick(ARRANGEMENTS_FULL);
   }
   const d = s.duration || "standard";
   if (d === "compact") a = "Tight intro, " + a + " (compact, radio-length).";
@@ -174,8 +186,11 @@ export const NO_STOP_ARRANGEMENTS = [
   "walking-bass intro, locked pocket build, non-stop swing groove, continuous peak, fading outro",
   "solo intro, ensemble build, full-band groove, non-stop section flow, straight outro"
 ];
+/* Hand-written shapes plus the generated no-break wave (each generated chain
+   is guaranteed break-word-free at the source). */
+export const NO_STOP_ARRANGEMENTS_FULL = dedupeAppend(NO_STOP_ARRANGEMENTS.slice(), EXTRA_NO_STOP_ARRANGEMENTS);
 export function pickNoStopArrangement(s) {
-  let a = pick(NO_STOP_ARRANGEMENTS);
+  let a = pick(NO_STOP_ARRANGEMENTS_FULL);
   const d = s.duration || "standard";
   if (d === "compact") a = "Instant groove intro, " + a + " (compact, radio-length).";
   else if (d === "extended") a = "Non-stop long-form: extended groove intro, " + a + ", seamless straight-through outro.";
