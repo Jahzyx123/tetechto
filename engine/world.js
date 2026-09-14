@@ -141,9 +141,17 @@ export function genreSafeText(s, text, protectStyles) {
   let t = String(text || "");
   const ph = [];
   if (protectStyles) {
-    const styles = [s.primaryStyle, s.secondaryStyle].filter(Boolean).sort((a, b) => b.length - a.length);
+    /* protectStyles may be `true` (protect the two raw style names) or an
+       explicit array of extra forms to protect. The extra forms matter:
+       downstream passes rewrite the name in place (the vocal sanitizer turns
+       "Festival Gospel" into "Festival Church"), and a later genre-safe pass
+       must still recognise and park that rewritten form — otherwise rules
+       like festival → "" eat words out of the style name itself. */
+    const extra = Array.isArray(protectStyles) ? protectStyles : [];
+    const styles = [...new Set([...extra, s.primaryStyle, s.secondaryStyle].filter(Boolean))]
+      .sort((a, b) => b.length - a.length);
     styles.forEach(st => {
-      const re = new RegExp(st.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
+      const re = new RegExp(String(st).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
       t = t.replace(re, m => { ph.push(m); return "\u0001" + (ph.length - 1) + "\u0001"; });
     });
   }

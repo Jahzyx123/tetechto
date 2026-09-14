@@ -747,6 +747,26 @@ export function hideBeatsLine(s, compact) {
 }
 
 /* ---------------------------- PROMPT BUILDERS ---------------------------- */
+/* Every form a style name can legitimately take inside a built prompt: the
+   raw name plus everything the in-pipeline rewrites can turn it into
+   (vocal-sanitized "Festival Gospel" → "Festival Church", tightened,
+   live-stripped). All of them must be parked by genreSafeText's style
+   protection — protecting only the raw name is what let a later genre-safe
+   pass eat "festival" out of the already-vocal-sanitized name. */
+export function styleProtectForms(s) {
+  const out = new Set();
+  for (const n of [s.primaryStyle, s.secondaryStyle]) {
+    if (!n) continue;
+    out.add(n);
+    out.add(stripVocalCue(n));
+    out.add(stripLive(n));
+    out.add(tightenPhrase(n));
+    out.add(tightenPhrase(stripVocalCue(n)));
+    if (!s.techOnly) out.add(genreSafeText(s, n, true));
+  }
+  return [...out].filter(Boolean).sort((a, b) => b.length - a.length);
+}
+
 export function buildStylePrompt(state) {
   const s = state;
   const SLIM = !!s.slim;
@@ -842,8 +862,8 @@ export function buildStylePrompt(state) {
      assemble()'s last-resort clamp can both strip it (long generated style
      names made this reachable), so restore it at the front if it is gone. */
   const styleHead = blocks[0] && (blocks[0].t || blocks[0].compact);
-  const styleShown = () => body.includes(s.primaryStyle) ||
-    (!s.techOnly && body.includes(genreSafeText(s, s.primaryStyle, true)));
+  const protectForms = styleProtectForms(s);
+  const styleShown = () => protectForms.some(f => body.includes(f));
   if (styleHead && s.primaryStyle && !styleShown()) {
     body = body ? styleHead + ". " + body : styleHead;
   }
@@ -853,7 +873,7 @@ export function buildStylePrompt(state) {
   if (!s.noStop && !s.hideBeats && s.counterMelody && s.counterMelody.voice && !/Counter(-melody)?:/.test(body)) body += ". Counter: " + s.counterMelody.voice;
   if (!s.noStop && !s.hideBeats && s.voiceConcept && s.voiceConcept.voice && !/Second line:/.test(body)) body += ". 2nd: " + s.voiceConcept.voice;
   body = sanitize(s, body);
-  if (!s.techOnly) body = genreSafeText(s, body, true); // rephrase techno-isms to fit the genre (style names protected)
+  if (!s.techOnly) body = genreSafeText(s, body, protectForms); // rephrase techno-isms to fit the genre (every style-name form protected)
   /* "voicing" must be gone before densify compares / inserts: Suno reads
      it as a human voice ("hey"/"houuu"); the rewrite is idempotent, so the
      final normalizePrompt pass does not double-apply it. */
@@ -863,7 +883,7 @@ export function buildStylePrompt(state) {
   const reserve = (v0 ? v0.length + 2 : 1) + tagCost + 2;
   body = densify(s, body, 1000 - reserve);
   body = sanitize(s, body);
-  if (!s.techOnly) body = genreSafeText(s, body, true);
+  if (!s.techOnly) body = genreSafeText(s, body, protectForms);
   if (s.structure && !s.hidden.styleCard) body += TAGS;
   const v = s.instrumental ? vocalLineCompact(s) : vocalLine(s);
   let out = normalizePrompt(body + "." + (v ? " " + v : ""));
@@ -955,7 +975,7 @@ export function buildFullBrief(state) {
     text = parts.join("\n\n");
     if (text.length > 3000) { text = text.slice(0, 3000).replace(/\s+\S*$/, ""); }
   }
-  if (!s.techOnly) text = genreSafeText(s, text, true); // style names protected
+  if (!s.techOnly) text = genreSafeText(s, text, styleProtectForms(s)); // every style-name form protected
   return stripVocalCue(text);
 }
 

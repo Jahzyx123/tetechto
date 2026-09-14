@@ -870,6 +870,9 @@ section("No-stop beat");
     "no-stop forces max-energy feeling (\"" + s.feeling + "\")");
   ok(!/\b(soothing|serene|gentle|lazy|calm|soft|quiet)\b/i.test(s.feeling + " " + s.flavor + " " + s.direction),
     "no low-energy emotion survives ultra delivery");
+  ok(["feeling", "flavor", "direction"].every(k =>
+    E.poolFor(s, k).every(v => !E.NO_STOP_LOW_ENERGY_RE.test(v))),
+    "no-stop emotion pools are pre-filtered to max-energy vocabulary (contrast entries parked)");
   const fbU = E.buildFullBrief(s);
   ok(/ultra delivery|relentless energy/i.test(fbU) && fbU.length <= 3000, "no-stop brief carries the ultra-delivery policy");
   // clearing returns to the standard drop/breakdown shape
@@ -1313,6 +1316,24 @@ section("Style pool expansion");
   }
   ok(lost === 0, "style name survives into every prompt across 200 rolls (" + lost + " lost)");
 
+  /* Regression: vocal-rewritten style names ("Festival Gospel" → "Festival
+     Church") used to lose words on the second genre-safe pass — the
+     protection only parked the RAW name, so festival→"" ate into the name.
+     All rendered forms must now be protected. */
+  {
+    const st = E.defaultState();
+    st.techOnly = false; st.styleFit = false;
+    st.primaryGenre = "Church"; st.secondaryGenre = "Airport";
+    st.primaryStyle = "Festival Gospel"; st.secondaryStyle = "Touchdown Airport";
+    for (const scope of ["feel-melody", "bass", "drums", "harmony", "rhythm", "arrangement"]) E.roll(st, scope);
+    const sp = E.buildStylePrompt(st);
+    const fb = E.buildFullBrief(st);
+    const okForms = E.styleProtectForms(st);
+    ok(okForms.some(f => sp.includes(f)), "vocal-rewritten style name survives the Style Prompt (" + st.primaryStyle + ")");
+    ok(okForms.some(f => fb.includes(f)), "vocal-rewritten style name survives the Full Brief");
+    ok(!/^\s*Church\b/.test(sp), "the genre-safe rewrite no longer eats words out of the style name");
+  }
+
   // techno-only never reaches into the genre pool, even expanded
   const names = new Set(E.STYLES.map(x => x.n));
   const st = E.defaultState(); st.techOnly = true;
@@ -1494,6 +1515,69 @@ section("Batch lab");
   const maxed = E.rollBatch(s, 2, { mode: "max", tries: 12 });
   ok(maxed.length === 2 && maxed.every(c => typeof c.score.total === "number"),
     "batch supports per-candidate MAX search");
+}
+
+/* ---------------- concept + melody expansion ---------------- */
+section("Concept & melody-concept expansion");
+{
+  const C = await import("../data/concept.js");
+  const CX = await import("../data/concept-extra.js");
+  ok(E.CONCEPT_EXPANSION_STATS.added >= 2500,
+    "concept pools gain ≥2500 generated entries (+" + E.CONCEPT_EXPANSION_STATS.added + ")");
+  const mins = { world: 400, location: 350, visual: 350, narrative: 330, sensation: 300, event: 330, conflict: 250, crowd: 250, title: 380, transform: 280 };
+  let minsOk = true; const sizes = [];
+  for (const k in mins) {
+    const n = (E.CONCEPT_POOL[k] || []).length;
+    sizes.push(k + ":" + n);
+    if (n < mins[k]) minsOk = false;
+  }
+  ok(minsOk, "every concept key reaches its expanded floor (" + sizes.join(" ") + ")");
+  let dupes = 0;
+  for (const k in E.CONCEPT_POOL) {
+    const seen = new Set();
+    for (const v of E.CONCEPT_POOL[k]) {
+      const x = String(v).toLowerCase().trim();
+      if (seen.has(x)) dupes++;
+      seen.add(x);
+    }
+  }
+  ok(dupes === 0, "merged concept pools contain zero case-insensitive duplicates");
+  const banned = /\b(minimal|minimalist|sparse|restrained|low[- ]energy|weak|tiny|gentle|quiet)\b/i;
+  const vocalRe = new RegExp("\\b(" + (D.VOCAL_WORDS || []).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b", "i");
+  let dirty = 0;
+  for (const k in CX.EXTRA_CONCEPT) for (const v of CX.EXTRA_CONCEPT[k]) {
+    if (banned.test(v) || vocalRe.test(v)) dirty++;
+  }
+  ok(dirty === 0, "generated concepts are banned-word- and vocal-free");
+  /* the roll engine must actually draw from the expanded pools */
+  const s = E.defaultState();
+  const verbatim = new Set();
+  for (const k in C.CONCEPT) C.CONCEPT[k].forEach(v => verbatim.add(k + "|" + v));
+  let expandedHits = 0;
+  for (let i = 0; i < 300; i++) {
+    E.roll(s, "concept");
+    for (const k in s.concept) if (s.concept[k] && !verbatim.has(k + "|" + s.concept[k])) expandedHits++;
+  }
+  ok(expandedHits > 50, "concept rolls draw heavily from the expansion (" + expandedHits + "/3000 expanded draws)");
+  /* the melody sound-pool merge bug is fixed: extras actually land now */
+  ok(E.MELODY_EXPANSION_STATS.pools >= 5 && E.MELODY_EXPANSION_STATS.added >= 100,
+    "melody sound pools merge their generated extras (" + E.MELODY_EXPANSION_STATS.pools + " pools, +" + E.MELODY_EXPANSION_STATS.added + ")");
+  let relax = 0;
+  for (const k in CX.EXTRA_MELODY_CONCEPT_MORE) {
+    for (const v of CX.EXTRA_MELODY_CONCEPT_MORE[k]) if (E.isRelaxMelody(v)) relax++;
+  }
+  ok(relax === 0, "extra melody-concept lines survive the runtime relax filter");
+  ok(E.MELODY_CONCEPT_POOL.story.length >= 160 && E.MELODY_CONCEPT_POOL.hook.length >= 120,
+    "melody-concept pools reach their merged sizes (story:" + E.MELODY_CONCEPT_POOL.story.length +
+    " role:" + E.MELODY_CONCEPT_POOL.role.length + " motion:" + E.MELODY_CONCEPT_POOL.motion.length +
+    " hook:" + E.MELODY_CONCEPT_POOL.hook.length + ")");
+  /* prompts stay capped with the richer concept vocabulary */
+  let over = 0;
+  for (let i = 0; i < 40; i++) {
+    E.roll(s, "everything");
+    if (E.buildStylePrompt(s).length > 1000 || E.buildFullBrief(s).length > 3000) over++;
+  }
+  ok(over === 0, "prompt caps hold with expanded concepts across 40 rolls");
 }
 
 /* ---------------- PWA assets ---------------- */

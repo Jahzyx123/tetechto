@@ -10,7 +10,8 @@ import { LAYERS } from "../data/safety.js";
 import {
   defaultState, roll, rollBatch, buildStylePrompt, buildFullBrief, scorePrompt,
   encodeState, decodeState, setSeed, weirdMix, clone,
-  SOUND_CARDS, unhideAllSoundCards, autoFitSounds, setSoundLite, setNoStop, setHideBeats, STYLE_STATS
+  SOUND_CARDS, unhideAllSoundCards, autoFitSounds, setSoundLite, setNoStop, setHideBeats, STYLE_STATS,
+  CONCEPT_POOL, MELODY_CONCEPT_POOL
 } from "../engine/index.js";
 import { openPicker } from "./picker.js";
 import { History, bindUndoKeys } from "./history.js";
@@ -866,6 +867,19 @@ function initEvents() {
 }
 
 /* ---------------------------- boot ---------------------------- */
+/* Point the concept & melody-concept manual pickers at the EXPANDED pools
+   (verbatim + generated extras), so hand-picking sees the same richness
+   the rolls do. Done here (not in /data) to keep the data layer free of
+   an engine import cycle. */
+for (const k of Object.keys(CONCEPT_POOL)) {
+  const e = PICKER_POOLS["concept-" + k];
+  if (e && e.arr) e.arr = () => CONCEPT_POOL[k];
+}
+for (const k of Object.keys(MELODY_CONCEPT_POOL)) {
+  const e = PICKER_POOLS["melodyConcept-" + k];
+  if (e && e.arr) e.arr = () => MELODY_CONCEPT_POOL[k];
+}
+
 ATOMS.forEach(a => {
   const entry = PICKER_POOLS[a.pick || a.key];
   if (entry && (entry.arr || ["style", "key"].includes(entry.type))) a.pickEntry = entry;

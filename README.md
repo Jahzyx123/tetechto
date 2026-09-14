@@ -10,6 +10,45 @@ Rebuilt from the legacy 600 KB single-file app into plain ES modules with
 python3 -m http.server 8080      # then open http://localhost:8080
 ```
 
+## What's new in v4.2 — concepts & sounds for everything that rolls
+
+* **Concept pools ×8.5** — the Concept card used to roll from the verbatim
+  pools only (27–93 entries per key). A new deterministic generator,
+  `tools/expand-concepts.js`, adds **+3,760 entries** across all 10 keys
+  (world, location, visual, narrative, sensation, event, conflict, crowd,
+  title, transform) → `data/concept-extra.js`, merged at runtime into
+  `CONCEPT_POOL`. Every key now holds 347–552 rollable values.
+* **Melody-concept wave two** — **+370** extra story / role / motion / hook
+  lines, all pre-filtered so they survive the runtime relax check. Merged
+  melody-concept pools: story 210 · role 119 · motion 196 · hook 195.
+* **Melody sound bug fixed** — the generated melody sound extras
+  (`EXTRA_MELODY_POOLS`, +111 entries across feelings/flavors/directions/
+  perfs/arps/contours/rhythms) were **silently never merged** — the
+  expansion loop re-resolved pool names from already-replaced arrays and got
+  `undefined`. Fixed by resolving each atom's pool name once up-front, so
+  these sounds now actually reach every roll.
+* **Richer hand-picking** — the Concept and Melody-concept manual pickers
+  now offer the full expanded pools, matching what the rolls draw from.
+* Same guarantees as the sound expansion: deterministic (seeded), banned-word
+  free, instrumental/vocal-safe, deduped against the verbatim pools — which
+  are never modified. Regenerate anytime with `npm run expand`.
+
+Two engine bugs found and fixed while stress-testing the richer pools:
+
+* **NO-STOP emotion hygiene** — the verbatim pools carry contrast entries
+  ("serene but powerful") that rightfully survive the relax filter in normal
+  rolls, but under NO-STOP they occasionally leaked into the emotion line.
+  `poolFor()` now pre-filters feeling/flavor/direction to max-energy
+  vocabulary while ultra delivery is on.
+* **Style-name erosion** — a rare flake: the vocal sanitizer rewrote
+  "Festival Gospel" → "Festival Church", then a *second* genre-safe pass
+  didn't recognize the rewritten form as a style name and its
+  `festival → ""` techno-strip ate a word out of the name. `genreSafeText`
+  now parks **every** rendered form of both style names
+  (`styleProtectForms()`), with a deterministic regression test.
+* The test suite went flake-hunting: **10 consecutive full-suite runs, all
+  green** (previously two checks failed ~1 run in 5–8).
+
 ## What's new in v4.1
 
 * **⚡ Batch Lab** (`G`) — the legacy MEGA BATCH idea rebuilt on the unified
@@ -74,6 +113,21 @@ pulled programmatically out of `Tetech-main/index.html` by
 the deterministic pool expansion from the legacy build — the content is never
 re-typed. Don't hand-edit these files; re-run the extractor.
 
+On top of the verbatim pools sit the **generated expansion layers**, additive
+and deterministic — never edit them either, re-run the generators:
+
+* `data/expansion.js` — `tools/expand-sounds.js` → 9,000+ extra sounds across
+  95 sonic pools (drums, bass, leads, techno lab, sound design, mix, spatial,
+  texture, fx…).
+* `data/concept-extra.js` — `tools/expand-concepts.js` → 3,760 extra concept
+  entries (10 keys) + 370 melody-concept lines.
+* `data/melody-extra.js` — `tools/expand-melody.js` → melody pool + concept
+  extras.
+
+`npm run expand` regenerates the sound + concept layers. All expansion merges
+happen once at load in `engine/state.js` (`EXPANSION_STATS`,
+`CONCEPT_EXPANSION_STATS`, `MELODY_EXPANSION_STATS`).
+
 ### /engine — ported algorithms
 
 * `prng.js` — `mulberry32` seeded PRNG + `pick()`; deterministic per seed.
@@ -131,7 +185,7 @@ Both are first-class; the mode toggle sits in the header.
 
 ```
 npm start            # static server (or any other file server)
-npm test             # node tests/run.js — 577 checks incl. the jsdom UI boot
+npm test             # node tests/run.js — 590 checks incl. the jsdom UI boot
 npm run lint         # eslint flat config — zero errors is the bar
 npm run extract      # regenerate /data from Tetech-main/index.html
 npm run build        # optional single-file dist/index.html for sharing
