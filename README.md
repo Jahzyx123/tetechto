@@ -10,6 +10,38 @@ Rebuilt from the legacy 600 KB single-file app into plain ES modules with
 python3 -m http.server 8080      # then open http://localhost:8080
 ```
 
+## What's new in v4.6 — everything "rolled" in the prompt now rolls deep
+
+The last fixed prose surfaces that flow into the Suno prompt — the
+detail-layer phrases, the scale mood line, and the melodic-focus line —
+are now rolled from generated pools, and **every one of the 95 sound
+pools gets a third depth pass**. The rule is simple: if it appears in the
+prompt, it draws from a deep, deterministic pool.
+
+* **Rolled prompt prose** — three surfaces that were single fixed strings
+  now pick a variant per seed:
+  * **Detail layers** — the `Details:` / `MIX & DETAIL:` line. Each of the
+    **46 layers** gets **≥20 phrase variants** (**+903** generated).
+  * **Scale mood** — the `KEY:` line. Each of the **27 scales** gets
+    **≥13 mood variants** (**+324** generated).
+  * **Melodic focus** — the `MELODIC FOCUS:` line. Each of the **4 focus
+    levels** (light / balanced / strong / dominant) gets **≥10 variants**
+    (**+36** generated).
+  * The pick is a **pure hash of `(seed, id)`** — deterministic, never
+    touches the sequential `prng` roll stream, so existing share links
+    reproduce exactly and nothing downstream shifts.
+* **Sounds wave three** — `tools/expand-sounds3.js` →
+  `data/expansion3.js`: **+4,180 entries across all 95 sound pools**.
+  After waves one and two, this third pass lifts **every atom pool to
+  ≥130 entries** (thinnest is now `sidechainType` at 130; total
+  **20,713** rollable sound atoms).
+* New generators: `tools/expand-prompt-extras.js` → `data/prompt-extra.js`.
+  `npm run expand` now runs **all nine generators**.
+* Same guarantees as every prior wave: deterministic (seeded), banned-word
+  free, vocal-safe, world-safe language (built to survive both the organic
+  and hybrid `genreSafeText` maps), deduped against the verbatim originals —
+  which stay untouched. Test suite: **687 checks, 10 consecutive runs green**.
+
 ## What's new in v4.5 — the Idea Engine returns
 
 The legacy app's **Idea Engine — Sparks & Wildcards** card is back, ported
@@ -41,7 +73,8 @@ v4 but never rolled anywhere until now.
   copy or apply — applied sparks flow through the same genre-safe / vocal /
   length pipeline as rolled concepts.
 * The engine gained `engine/spark.js` (merged pools, kind registries,
-  applies, wildcards). `npm run expand` now runs all seven generators.
+  applies, wildcards). `npm run expand` ran all seven generators of its day
+  (the prompt-prose and sounds-wave-three generators joined in v4.6).
 
 ## What's new in v4.4 — concepts & sounds wave two
 
@@ -219,15 +252,19 @@ and deterministic — never edit them either, re-run the generators:
 
 * `data/expansion.js` — `tools/expand-sounds.js` → 9,000+ extra sounds across
   95 sonic pools (drums, bass, leads, techno lab, sound design, mix, spatial,
-  texture, fx…).
-* `data/concept-extra.js` — `tools/expand-concepts.js` → 3,760 extra concept
-  entries (10 keys) + 370 melody-concept lines.
-* `data/melody-extra.js` — `tools/expand-melody.js` → melody pool + concept
-  extras.
+  texture, fx…). Wave two (`expansion2.js`) and wave three (`expansion3.js`)
+  stack on top, lifting every atom pool to ≥130 entries.
+* `data/concept-extra.js` / `concept-extra2.js` — 6,000+ extra concept
+  entries (10 keys) + melody-concept lines.
+* `data/structure-extra.js`, `data/acoustic.js`, `data/sparks-extra.js` —
+  arrangements, hybrid vocabularies and spark pools.
+* `data/prompt-extra.js` — `tools/expand-prompt-extras.js` → rolled variants
+  for the prompt's own prose (layer phrases, scale moods, melodic focus).
 
-`npm run expand` regenerates the sound + concept layers. All expansion merges
+`npm run expand` regenerates all nine layers. All expansion merges
 happen once at load in `engine/state.js` (`EXPANSION_STATS`,
-`CONCEPT_EXPANSION_STATS`, `MELODY_EXPANSION_STATS`).
+`EXPANSION_W2_STATS`, `EXPANSION_W3_STATS`, `CONCEPT_EXPANSION_STATS`,
+`MELODY_EXPANSION_STATS`).
 
 ### /engine — ported algorithms
 
@@ -286,7 +323,7 @@ Both are first-class; the mode toggle sits in the header.
 
 ```
 npm start            # static server (or any other file server)
-npm test             # node tests/run.js — 652 checks incl. the jsdom UI boot
+npm test             # node tests/run.js — 687 checks incl. the jsdom UI boot
 npm run lint         # eslint flat config — zero errors is the bar
 npm run extract      # regenerate /data from Tetech-main/index.html
 npm run build        # optional single-file dist/index.html for sharing

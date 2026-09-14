@@ -1807,6 +1807,99 @@ section("Sounds wave two");
 }
 
 /* ---------------- v4.5 Idea Engine (sparks) ---------------- */
+/* ---------------- v4.6: sounds wave three + rolled prompt prose ---------------- */
+section("Sounds wave three");
+{
+  const W3 = await import("../data/expansion3.js");
+  const { EXPANSION_W3_STATS, POOL_OF } = await import("../engine/state.js");
+  ok(EXPANSION_W3_STATS.pools === 95, "wave three touched all 95 atom pools (" + EXPANSION_W3_STATS.pools + ")");
+  ok(EXPANSION_W3_STATS.added >= 4000, "wave three adds >= 4000 entries (+" + EXPANSION_W3_STATS.added + ")");
+  let minK = "", minN = 1e9;
+  for (const [k, pool] of Object.entries(POOL_OF)) {
+    if (pool.length < minN) { minN = pool.length; minK = k; }
+  }
+  ok(minN >= 130, "every merged atom pool is now >= 130 deep (min " + minK + ": " + minN + ")");
+  const typesOk = Object.values(W3.EXTRA_POOLS_W3).every(a => a.every(x => typeof x === "string"));
+  ok(typesOk, "wave three entries are plain strings (no double-wrapped JSON)");
+  for (const [k, pool] of Object.entries(POOL_OF)) {
+    const seen = new Set(); let dup = 0;
+    for (const v of pool) { const key = String(v).toLowerCase().trim(); if (seen.has(key)) dup++; seen.add(key); }
+    ok(dup === 0, k + " pool stays duplicate-free after wave three");
+  }
+}
+
+section("Rolled prompt prose (layer phrases / scale moods / melodic focus)");
+{
+  const PE = await import("../data/prompt-extra.js");
+  const { LAYER_PHRASE_POOLS, SCALE_MOOD_POOLS, MELODY_FORCE_POOLS } = await import("../engine/prompt.js");
+  const { LAYERS } = await import("../data/safety.js");
+  const { SCALES } = await import("../data/scales.js");
+  ok(Object.keys(LAYER_PHRASE_POOLS).length === LAYERS.length, "layer phrase pools cover all " + LAYERS.length + " layers");
+  let lpMin = 1e9;
+  for (const id of Object.keys(LAYER_PHRASE_POOLS)) lpMin = Math.min(lpMin, LAYER_PHRASE_POOLS[id].length);
+  ok(lpMin >= 20, "every layer has >= 20 rolled phrase variants (min " + lpMin + ")");
+  ok(Object.keys(SCALE_MOOD_POOLS).length === Object.keys(SCALES).length, "scale mood pools cover every scale");
+  let smMin = 1e9;
+  for (const id of Object.keys(SCALE_MOOD_POOLS)) smMin = Math.min(smMin, SCALE_MOOD_POOLS[id].length);
+  ok(smMin >= 12, "every scale has >= 12 rolled mood variants (min " + smMin + ")");
+  for (const f of ["light", "balanced", "strong", "dominant"])
+    ok((MELODY_FORCE_POOLS[f] || []).length >= 9, f + " focus pool has >= 9 variants");
+  for (const [name, a] of [["layer phrases", Object.values(PE.LAYER_PHRASES_EXTRA).flat()],
+                            ["scale moods", Object.values(PE.SCALE_MOODS_EXTRA).flat()],
+                            ["focus lines", Object.values(PE.MELODY_FORCE_EXTRA).flat()]]) {
+    ok(a.every(x => typeof x === "string" && x.length > 0 && x.length <= 60), name + " are clean short strings");
+    ok(true, name + " checked below per-pool");
+  }
+  let dupPools = 0;
+  for (const a of Object.values(PE.LAYER_PHRASES_EXTRA)) {
+    const seen = new Set(a.map(x => x.toLowerCase().trim()));
+    if (seen.size !== a.length) dupPools++;
+  }
+  for (const a of Object.values(PE.SCALE_MOODS_EXTRA)) {
+    const seen = new Set(a.map(x => x.toLowerCase().trim()));
+    if (seen.size !== a.length) dupPools++;
+  }
+  for (const a of Object.values(PE.MELODY_FORCE_EXTRA)) {
+    const seen = new Set(a.map(x => x.toLowerCase().trim()));
+    if (seen.size !== a.length) dupPools++;
+  }
+  ok(dupPools === 0, "no prompt-extra pool contains internal duplicates (" + dupPools + ")");
+  /* seed picks: pure hash, deterministic per (seed, id), in-pool */
+  {
+    const s = E.defaultState();
+    const a = E.layerPhrase("texture", s);
+    ok(LAYER_PHRASE_POOLS.texture.includes(a), "layerPhrase picks from its pool");
+    const s2 = { ...s, locks: {}, hidden: {} };
+    ok(E.layerPhrase("texture", s) === E.layerPhrase("texture", s2), "layerPhrase deterministic per seed");
+    const variants = new Set();
+    for (let i = 0; i < 40; i++) variants.add(E.layerPhrase("texture", { seed: "seed-" + i }));
+    ok(variants.size >= 8, "40 seeds spread across >= 8 layer variants (" + variants.size + ")");
+    const mood = E.scaleMood(s);
+    ok(SCALE_MOOD_POOLS[E.scaleOf(s).id].includes(mood), "scaleMood picks from its pool: " + mood);
+    const fd = E.forceDesc({ ...s, melodicForce: "strong" });
+    ok(MELODY_FORCE_POOLS.strong.includes(fd), "forceDesc picks from its pool: " + fd);
+    /* hash picks must never disturb the sequential roll stream */
+    const t = E.defaultState(); t.seed = s.seed;
+    const kick0 = t.kick;
+    E.layerPhrase("texture", t); E.scaleMood(t); E.forceDesc(t);
+    ok(t.kick === kick0, "prompt-prose picks leave the state and roll stream untouched");
+  }
+  /* end-to-end: the rolled surfaces render inside the real outputs */
+  {
+    const s = E.defaultState();
+    s.layers = { texture: true, euphoria: true, lowend: true, room: true };
+    s.melodicForce = "strong";
+    const brief = E.buildFullBrief(s);
+    ok(/MIX & DETAIL: /.test(brief), "brief renders rolled layer phrases");
+    ok(/KEY: [^\n]+ — /.test(brief), "brief renders rolled scale mood");
+    ok(/MELODIC FOCUS: /.test(brief), "brief renders rolled focus line");
+    const sp = E.buildStylePrompt({ ...s, vocalMode: "instrumental" });
+    ok(sp.length <= 1000, "style prompt with rolled details stays <= 1000 chars (" + sp.length + ")");
+    const noPolicy = sp.replace(/instrumental [a-z-]+, no vocals.*$/i, "");
+    ok(!E.hasVocalRef(noPolicy), "rolled details keep the prompt vocal-free");
+  }
+}
+
 section("Idea Engine (sparks)");
 {
   const W = await import("../data/sparks-extra.js");

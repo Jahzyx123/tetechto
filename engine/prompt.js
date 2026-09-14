@@ -11,6 +11,8 @@
    All builders take the state object explicitly. */
 import { SAFETY_LINE, BANNED_MINIMAL, VOCAL_WORDS, LAYERS, VOCAL_DIRECTIONS } from "../data/safety.js";
 import { EXTRA_VOCAL_DIRECTIONS_W2 } from "../data/expansion2.js";
+import { LAYER_PHRASES_EXTRA, SCALE_MOODS_EXTRA, MELODY_FORCE_EXTRA } from "../data/prompt-extra.js";
+import { SCALES } from "../data/scales.js";
 import { hasHandPerc, NO_STOP_BAD_RE } from "./state.js";
 import { ARC_TEMPLATES } from "../data/concept.js";
 import { MELODY_FORCE } from "../data/scales.js";
@@ -24,6 +26,51 @@ import { genreWorld, genreSafeText } from "./world.js";
 const _vdBase = VOCAL_DIRECTIONS.map(x => String(x).toLowerCase().trim());
 export const VOCAL_DIRECTIONS_ALL = VOCAL_DIRECTIONS.concat(
   EXTRA_VOCAL_DIRECTIONS_W2.filter(x => !_vdBase.includes(String(x).toLowerCase().trim())));
+
+/* ---------------------------- ROLLED PROMPT PROSE ----------------------------
+   The prompt's last fixed surfaces — detail-layer phrases, scale moods and
+   melodic-focus lines — now roll from generated pools too. The pick is a
+   pure function of (seed, id): hash-based, so it NEVER disturbs the main
+   roll stream, every seed maps to the same phrases, and share links stay
+   reproducible. */
+function hash32(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+export function seedPick(pool, seed, salt) {
+  if (!pool || !pool.length) return "";
+  return pool[hash32(String(seed) + "::" + salt) % pool.length];
+}
+function mergeProse(verbatim, extra) {
+  const base = [verbatim];
+  const seen = new Set([String(verbatim).toLowerCase().trim()]);
+  for (const x of extra || []) {
+    const k = String(x).toLowerCase().trim();
+    if (!seen.has(k)) { seen.add(k); base.push(x); }
+  }
+  return base;
+}
+export const LAYER_PHRASE_POOLS = {};
+for (const l of LAYERS) LAYER_PHRASE_POOLS[l.id] = mergeProse(l.phrase, LAYER_PHRASES_EXTRA[l.id]);
+export const SCALE_MOOD_POOLS = {};
+for (const sc of Object.values(SCALES)) SCALE_MOOD_POOLS[sc.id] = mergeProse(sc.mood, SCALE_MOODS_EXTRA[sc.id]);
+export const MELODY_FORCE_POOLS = {};
+for (const f in MELODY_FORCE) MELODY_FORCE_POOLS[f] = mergeProse(MELODY_FORCE[f].desc, MELODY_FORCE_EXTRA[f]);
+export function layerPhrase(id, s) { return seedPick(LAYER_PHRASE_POOLS[id], s.seed, "layer:" + id); }
+export function scaleMood(s) {
+  const id = scaleOf(s).id;
+  return seedPick(SCALE_MOOD_POOLS[id], s.seed, "mood:" + id);
+}
+export function forceDesc(s) {
+  const f = s.melodicForce || "balanced";
+  return seedPick(MELODY_FORCE_POOLS[f], s.seed, "force:" + f);
+}
+export const PROMPT_EXTRA_STATS = {
+  layers: Object.values(LAYER_PHRASES_EXTRA).reduce((n, a) => n + a.length, 0),
+  moods: Object.values(SCALE_MOODS_EXTRA).reduce((n, a) => n + a.length, 0),
+  force: Object.values(MELODY_FORCE_EXTRA).reduce((n, a) => n + a.length, 0)
+};
 
 const VOCAL_RE = new RegExp("\\b(" + VOCAL_WORDS.join("|") + ")\\b", "i");
 export function hasVocalRef(text) { return VOCAL_RE.test(text); }
@@ -704,7 +751,7 @@ export function enabledLayers(s) { return LAYERS.filter(l => s.layers[l.id]); }
 export function layerLine(s) {
   const e = enabledLayers(s);
   if (!e.length) return "";
-  return "Details: " + e.map(l => l.phrase).join(", ");
+  return "Details: " + e.map(l => layerPhrase(l.id, s)).join(", ");
 }
 /* Instrumental-only vocal sanitizer: when instrumental is on the prompt
    always ends in an explicit no-vocals policy line. */
@@ -914,9 +961,9 @@ export function buildFullBrief(state) {
   sec.push("STYLE: " + styleLine(s) + ".");
   if (s.noStop) sec.push("NON-STOP: continuous beat from start to finish — no breaks, no bridges, no breakdowns, no silent gaps, seamless section changes, ultra delivery: relentless energy from the first bar to the last.");
   if (s.hideBeats) sec.push("MELODY-ONLY: no drums, no percussion, no bass, no added instruments or effects — only the style's own lead melody and its pattern.");
-  if (!s.hidden.key) sec.push("KEY: " + keyName(s) + " (Camelot " + camelot(s) + ") — " + scaleOf(s).mood + ".");
+  if (!s.hidden.key) sec.push("KEY: " + keyName(s) + " (Camelot " + camelot(s) + ") — " + scaleMood(s) + ".");
   if (!s.hidden.feelCard) {
-    if (f !== "balanced") sec.push("MELODIC FOCUS: " + MELODY_FORCE[f].desc + ".");
+    if (f !== "balanced") sec.push("MELODIC FOCUS: " + forceDesc(s) + ".");
     const emo = [cleanFrag(s, s.feeling), cleanFrag(s, s.flavor)].filter(Boolean).join(" and ");
     const dir = cleanFrag(s, s.direction);
     sec.push("EMOTION: " + (emo || "maximum-energy") + (dir ? " — " + dir : "") + ".");
@@ -972,7 +1019,7 @@ export function buildFullBrief(state) {
   }
   if (!s.hidden.arrangementCard && s.arrangement) sec.push("ARRANGEMENT: " + s.arrangement);
   sec.push("ENERGY ARC: " + arcLine(s) + ".");
-  if (layers.length) sec.push("MIX & DETAIL: " + layers.map(l => l.phrase).join(", ") + ".");
+  if (layers.length) sec.push("MIX & DETAIL: " + layers.map(l => layerPhrase(l.id, s)).join(", ") + ".");
   sec.push("VOCAL POLICY: " + vocalLine(s) + ".");
   /* strip "live" before the 3000-char cap so length accounting stays right */
   let text = sec.map(x => stripVocalCue(stripLive(sanitize(s, x)))).filter(Boolean).join("\n\n");

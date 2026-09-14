@@ -26,6 +26,7 @@ import {
 } from "../data/index.js";
 import { EXTRA_POOLS } from "../data/expansion.js";
 import { EXTRA_POOLS_W2, EXTRA_NO_STOP_INTENSITY_W2 } from "../data/expansion2.js";
+import { EXTRA_POOLS_W3 } from "../data/expansion3.js";
 import { EXTRA_MELODY_CONCEPT, EXTRA_MELODY_POOLS } from "../data/melody-extra.js";
 import { EXTRA_CONCEPT, EXTRA_MELODY_CONCEPT_MORE } from "../data/concept-extra.js";
 import { EXTRA_CONCEPT_W2, EXTRA_MELODY_CONCEPT_W2 } from "../data/concept-extra2.js";
@@ -105,20 +106,25 @@ for (const k in POOL_OF) {
     EXPANSION_STATS.pools++; EXPANSION_STATS.added += extra.length;
   }
 }
-/* Sounds wave two: tops up the thinnest pools. Same append-after-wave-one
-   order keeps every entry reachable; dedupe is handled per-entry below. */
+/* Sounds waves two and three: append-after order keeps every entry
+   reachable; dedupe is handled per-entry below. */
 export const EXPANSION_W2_STATS = { pools: 0, added: 0 };
-for (const k in POOL_OF) {
-  const extra = EXTRA_POOLS_W2[POOL_KEY_NAME[k]];
-  if (extra && extra.length) {
-    const have = new Set(POOL_OF[k].map(x => String(x).toLowerCase().trim()));
-    const add = extra.filter(x => !have.has(String(x).toLowerCase().trim()));
-    if (add.length) {
-      POOL_OF[k] = POOL_OF[k].concat(add);
-      EXPANSION_W2_STATS.pools++; EXPANSION_W2_STATS.added += add.length;
+export const EXPANSION_W3_STATS = { pools: 0, added: 0 };
+function mergeWave(stats, wave) {
+  for (const k in POOL_OF) {
+    const extra = wave[POOL_KEY_NAME[k]];
+    if (extra && extra.length) {
+      const have = new Set(POOL_OF[k].map(x => String(x).toLowerCase().trim()));
+      const add = extra.filter(x => !have.has(String(x).toLowerCase().trim()));
+      if (add.length) {
+        POOL_OF[k] = POOL_OF[k].concat(add);
+        stats.pools++; stats.added += add.length;
+      }
     }
   }
 }
+mergeWave(EXPANSION_W2_STATS, EXTRA_POOLS_W2);
+mergeWave(EXPANSION_W3_STATS, EXTRA_POOLS_W3);
 
 /* ------------------------- MELODY INTENSITY -------------------------
    The melody upgrade: intense, complex phrasing everywhere the melody
