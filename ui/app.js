@@ -11,7 +11,10 @@ import {
   defaultState, roll, rollBatch, buildStylePrompt, buildFullBrief, scorePrompt,
   encodeState, decodeState, setSeed, weirdMix, clone,
   SOUND_CARDS, unhideAllSoundCards, autoFitSounds, setSoundLite, setNoStop, setHideBeats, STYLE_STATS,
-  CONCEPT_POOL, MELODY_CONCEPT_POOL, ARRANGEMENTS_FULL
+  CONCEPT_POOL, MELODY_CONCEPT_POOL, ARRANGEMENTS_FULL,
+  SPARK_KINDS, EXTRA_KINDS, MAGIC2_KINDS, SPARK_STATS, rollSpark, kindPool,
+  applyTitle, applyMashup, applyTransform, applyChallenge,
+  megaChaos, luckyDip, timeMachine, randomFocus, anthemIdea, maxAnthemIdea, keyName
 } from "../engine/index.js";
 import { openPicker } from "./picker.js";
 import { History, bindUndoKeys } from "./history.js";
@@ -380,7 +383,9 @@ function toggleCollapse(id) {
   render();
 }
 function collapseAll(on) {
-  CARD_DEFS.forEach(d => { if (on) collapsedCards.add(d.id); else collapsedCards.delete(d.id); });
+  CARD_DEFS.concat({ id: "sparkCard" }).forEach(d => {
+    if (on) collapsedCards.add(d.id); else collapsedCards.delete(d.id);
+  });
   render();
 }
 
@@ -433,7 +438,150 @@ function renderCards() {
       <button type="button" class="btn small" id="collapseAllBtn" aria-label="Collapse all cards">▸ Collapse all</button>
       <button type="button" class="btn small" id="expandAllBtn" aria-label="Expand all cards">▾ Expand all</button>
     </div>`;
-  $("#cards").innerHTML = toolbar + CARD_DEFS.map(cardHtml).join("");
+  $("#cards").innerHTML = toolbar + sparkHtml() + CARD_DEFS.map(cardHtml).join("");
+}
+
+/* ---------------------------- Idea Engine (sparks) ----------------------------
+   Ported from the legacy Spark card: wildcards drawn from the 32 Spark
+   pools (now alive — see engine/spark.js). Sparks never enter the prompt
+   on their own; copy them as fuel or apply them into concept / style. */
+let lastSparkText = "", lastSparkKindLabel = "", lastSparkMeta = "";
+let extraSparkIdx = 0, magicSparkIdx = 0;
+function setSpark(text, kindLabel, meta) {
+  lastSparkText = text; lastSparkKindLabel = kindLabel; lastSparkMeta = meta || "";
+  renderSparkReadout();
+}
+function renderSparkReadout() {
+  const v = document.getElementById("sparkView");
+  const m = document.getElementById("sparkMeta");
+  if (v) v.textContent = lastSparkText || "— press any button for a random spark —";
+  if (m) m.textContent = lastSparkMeta;
+}
+function sparkCtx() { return " · " + (state.bpm || 140) + " BPM · " + keyName(state); }
+function showSpark(kind, text) {
+  setSpark(text, kind.label, kind.emoji + " Random " + kind.label + " · " +
+    kindPool(kind).length + " options in pool" + sparkCtx());
+}
+function doSpark(i) {
+  const kind = SPARK_KINDS[i];
+  if (!kind) return;
+  showSpark(kind, rollSpark(kind));
+}
+function doSparkExtra() {
+  const kind = EXTRA_KINDS[extraSparkIdx % EXTRA_KINDS.length];
+  extraSparkIdx++;
+  showSpark(kind, rollSpark(kind));
+}
+function doSparkMagic() {
+  const kind = MAGIC2_KINDS[magicSparkIdx % MAGIC2_KINDS.length];
+  magicSparkIdx++;
+  showSpark(kind, rollSpark(kind));
+}
+const SPARK_APPLY = {
+  title: { kind: "Title", fn: applyTitle, emoji: "🏷", label: "title", lockMsg: "Title is locked" },
+  mashup: { kind: "Mash-up", fn: applyMashup, emoji: "🧬", label: "mash-up", lockMsg: "Primary style is locked" },
+  transform: { kind: "Transform", fn: applyTransform, emoji: "🪄", label: "transform", lockMsg: "Transform is locked" },
+  challenge: { kind: "Challenge", fn: applyChallenge, emoji: "🎯", label: "challenge", lockMsg: "Narrative is locked" }
+};
+function doSparkApply(which) {
+  const a = SPARK_APPLY[which];
+  if (!a) return;
+  if (lastSparkKindLabel !== a.kind) { toast("Roll a " + a.kind.toLowerCase() + " spark first"); return; }
+  if (!a.fn(state, lastSparkText)) { toast("🔒 " + a.lockMsg); return; }
+  commit("Spark " + a.label);
+  afterChange();
+  toast(a.emoji + " " + a.kind + " applied to the concept");
+}
+function doSparkWild(which) {
+  if (which === "mega") {
+    commit("Mega chaos");
+    const r = megaChaos(state);
+    afterChange();
+    setSpark("🔥 " + r.line, "Mega", "Mega Chaos Roll · score " + r.score + "/100" + sparkCtx());
+    toast("🔥 Mega Chaos Roll — check the cards");
+  } else if (which === "lucky") {
+    commit("Lucky dip");
+    const r = luckyDip(state);
+    afterChange();
+    setSpark("🎰 " + r.vibe, "Lucky Dip", "Lucky Dip · score " + r.score + "/100" + sparkCtx() +
+      " · " + (state.primaryStyle || ""));
+    toast("🎰 Lucky Dip rolled a whole fresh track");
+  } else if (which === "time") {
+    commit("Time machine");
+    timeMachine(state);
+    afterChange();
+    setSpark("🕰 Time Machine: " + state.bpm + " BPM · " + keyName(state) + " · " +
+      (state.duration || "standard"), "Time Machine",
+      "Fresh tempo + key + duration + arrangement + energy shape");
+    toast("🕰 Time Machine → " + state.bpm + " BPM · " + (state.duration || "standard"));
+  } else if (which === "focus") {
+    commit("Random focus");
+    const r = randomFocus(state, 12);
+    afterChange();
+    setSpark("🧠 Random Focus optimized " + r.category + " → " + r.score + "/100",
+      "Random Focus", r.category + " · maximize over 12 tries" + sparkCtx());
+    toast("🧠 Random Focus → " + r.category + " best " + r.score + "/100");
+  } else if (which === "anthem") {
+    commit("Anthem idea");
+    const out = anthemIdea(state);
+    afterChange();
+    setSpark("💥 " + out, "Anthem Idea", "Anthem Builder · Melody-Dominant" + sparkCtx());
+    toast("💥 Anthem Idea forged");
+  } else if (which === "maxanthem") {
+    commit("Max anthem idea");
+    const r = maxAnthemIdea(state, 20);
+    afterChange();
+    setSpark("⚡ " + r.out, "Anthem Idea", "Max Anthem Idea · melody maximized over 20 tries · score " +
+      r.score + "/100" + sparkCtx());
+    toast("⚡ Max Anthem Idea → " + r.score + "/100");
+  }
+}
+function doSparkCopy() {
+  if (!lastSparkText) { toast("Nothing to copy — roll a spark first"); return; }
+  copyText("🎲 " + lastSparkKindLabel + "\n" + lastSparkText +
+    "\n\nNEON FORGE · " + (state.primaryStyle || "") + " · " + (state.bpm || 140) + " BPM · " +
+    keyName(state), "Spark");
+}
+function sparkHtml() {
+  const collapsed = collapsedCards.has("sparkCard");
+  const coreBtns = SPARK_KINDS.map((k, i) =>
+    `<button type="button" class="btn small" data-spark="${i}" title="Roll a random ${k.label.toLowerCase()}">${k.emoji} ${k.label}</button>`).join("");
+  const wildBtns = [
+    ["mega", "🔥 Mega Chaos Roll", "Re-roll the whole production + spark title & transform"],
+    ["lucky", "🎰 Lucky Dip", "Roll a whole surprise track — melody-dominant"],
+    ["time", "🕰 Time Machine", "Fresh tempo / key / duration / arrangement / energy"],
+    ["focus", "🧠 Random Focus", "MAX a random production category (keeps styles)"],
+    ["anthem", "💥 Anthem Idea", "Title + vibe + transform, melody-dominant"],
+    ["maxanthem", "⚡ Max Anthem Idea", "Maximize the melody, then forge the anthem"]
+  ].map(([id, label, title]) =>
+    `<button type="button" class="btn small" data-sparkwild="${id}" title="${title}">${label}</button>`).join("");
+  const utilityBtns = [
+    `<button type="button" class="btn small" data-sparkextra="1" title="Cycle the extra spark pools — weather / light / sounds / futures / anthem names">🎲 More spark</button>`,
+    `<button type="button" class="btn small" data-sparkmagic="1" title="Cycle the second wave of spark pools — hooks, basslines, drum lines, Suno cues…">✨ Magic II</button>`,
+    `<button type="button" class="btn small" data-sparkapply="title" title="Put the current title spark into the Concept title">🏷 Apply title</button>`,
+    `<button type="button" class="btn small" data-sparkapply="mashup" title="Put the current mash-up into the Primary style">🧬 Apply mash-up</button>`,
+    `<button type="button" class="btn small" data-sparkapply="transform" title="Put the current transform into the Concept transformation">🪄 Apply transform</button>`,
+    `<button type="button" class="btn small" data-sparkapply="challenge" title="Put the current challenge into the Concept narrative">🎯 Apply challenge</button>`,
+    `<button type="button" class="btn small" data-sparkcopy="1" title="Copy the current spark">📋 Copy spark</button>`
+  ].join("");
+  return `
+  <div class="card sparkCard ${collapsed ? "collapsed" : ""}" id="sparkCard">
+    <div class="head">
+      <button type="button" class="collapse" data-collapse="sparkCard"
+        aria-expanded="${collapsed ? "false" : "true"}"
+        aria-label="${collapsed ? "Expand" : "Collapse"} Idea Engine card"
+        title="${collapsed ? "Expand card" : "Collapse card"}">${collapsed ? "▸" : "▾"}</button>
+      <h2>Idea Engine — Sparks &amp; Wildcards</h2>
+      <span class="readout">${SPARK_STATS.entries} sparks loaded</span>
+    </div>
+    ${collapsed ? "" : `<div class="rows sparkbody">
+      <div class="sparkView" id="sparkView">${escapeHtml(lastSparkText || "— press any button for a random spark —")}</div>
+      <div class="readout sparkMeta" id="sparkMeta">${escapeHtml(lastSparkMeta)}</div>
+      <div class="sparkrow">${coreBtns}</div>
+      <div class="sparkrow">${wildBtns}</div>
+      <div class="sparkrow">${utilityBtns}</div>
+    </div>`}
+  </div>`;
 }
 
 /* ---------------------------- output ---------------------------- */
@@ -830,9 +978,15 @@ function closeShortcuts() {
 /* ---------------------------- events ---------------------------- */
 function initEvents() {
   $("#cards").addEventListener("click", e => {
-    const t = e.target.closest("[data-roll],[data-lock],[data-pick],[data-cardroll],[data-cardmax],[data-cardhide],[data-rowhide],[data-layer],[data-collapse],#collapseAllBtn,#expandAllBtn");
+    const t = e.target.closest("[data-roll],[data-lock],[data-pick],[data-cardroll],[data-cardmax],[data-cardhide],[data-rowhide],[data-layer],[data-collapse],[data-spark],[data-sparkextra],[data-sparkmagic],[data-sparkapply],[data-sparkwild],[data-sparkcopy],#collapseAllBtn,#expandAllBtn");
     if (!t) return;
     if (t.dataset.collapse) return toggleCollapse(t.dataset.collapse);
+    if (t.dataset.spark !== undefined) return doSpark(parseInt(t.dataset.spark, 10));
+    if (t.dataset.sparkextra !== undefined) return doSparkExtra();
+    if (t.dataset.sparkmagic !== undefined) return doSparkMagic();
+    if (t.dataset.sparkapply) return doSparkApply(t.dataset.sparkapply);
+    if (t.dataset.sparkwild) return doSparkWild(t.dataset.sparkwild);
+    if (t.dataset.sparkcopy !== undefined) return doSparkCopy();
     if (t.id === "collapseAllBtn") return collapseAll(true);
     if (t.id === "expandAllBtn") return collapseAll(false);
     if (t.dataset.roll) return doRoll(t.dataset.roll);

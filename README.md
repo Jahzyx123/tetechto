@@ -10,6 +10,39 @@ Rebuilt from the legacy 600 KB single-file app into plain ES modules with
 python3 -m http.server 8080      # then open http://localhost:8080
 ```
 
+## What's new in v4.5 — the Idea Engine returns
+
+The legacy app's **Idea Engine — Sparks & Wildcards** card is back, ported
+to the modular engine and wired to the 32 Spark pools that were extracted in
+v4 but never rolled anywhere until now.
+
+* **Idea Engine card** — a full-width card at the top of the lab with:
+  * **10 core spark kinds** (💡 Idea, 🏷 Title, 🧬 Mash-up, ⛓ Constraint,
+    🛠 Tip, 🌊 Vibe, 🗺 Scene, 🔩 Object, 🪄 Transform, 🎯 Challenge),
+  * **More spark / Magic II** cyclers reaching the remaining 21 pools
+    (weather, light, sound sources, futures, hooks, basslines, drum lines,
+    melody phrases, concept twists, arrangement packs, mix punch, master
+    heart, Suno cues, DJ notes…),
+  * **Apply buttons** — a rolled title/mash-up/transform/challenge goes
+    straight into the concept card or the style identity (lock-respecting),
+  * **Copy spark** — one click copies the spark with the track context.
+* **Wildcards** — the legacy power buttons, rebuilt on the new engine:
+  🔥 **Mega Chaos Roll** (re-rolls the whole production + spark title &
+  transform, extended + melody-dominant frame), 🎰 **Lucky Dip** (a whole
+  fresh surprise track), 🕰 **Time Machine** (fresh tempo / key / duration /
+  arrangement / energy), 🧠 **Random Focus** (MAX a random category),
+  💥 **Anthem Idea** and ⚡ **Max Anthem Idea** (title + vibe + transform,
+  melody-dominant).
+* **Sparks wave** — new generator `tools/expand-sparks.js` →
+  `data/sparks-extra.js`: **+554 entries across 29 pools** (1,913 sparks
+  total, every pool ≥40). Seeded, banned-word free, vocal-safe, deduped
+  against the verbatim spark pools — which stay untouched.
+* Sparks never enter the prompt on their own; they are creative fuel you
+  copy or apply — applied sparks flow through the same genre-safe / vocal /
+  length pipeline as rolled concepts.
+* The engine gained `engine/spark.js` (merged pools, kind registries,
+  applies, wildcards). `npm run expand` now runs all seven generators.
+
 ## What's new in v4.4 — concepts & sounds wave two
 
 The "concepts & sounds for everything that rolls" upgrade continues with a
@@ -33,10 +66,10 @@ second wave on both fronts — every pool that still rolled thin is now deep.
 * **Vocal directions ×2.5** — vocal-mode tracks rolled from 24 directions;
   the generated wave brings the pool to **60** (vocal words are intentional
   here — vocal mode is user-selected).
-* Inventory note: the two remaining roll-adjacent structures were checked
-  and correctly left alone — energy-arc templates are deterministic
-  structural data (no roll involved), and the legacy SPARK pools are
-  referenced nowhere in engine or UI.
+* Inventory note: energy-arc templates were checked and correctly left
+  alone (deterministic structural data — no roll involved). The legacy
+  SPARK pools were still dormant at this point — they came alive one
+  release later with the v4.5 Idea Engine.
 * Same guarantees as every prior wave: deterministic (seeded), banned-word
   free, vocal-safe (except the vocal-direction pool, by design), world-safe
   language, deduped against verbatim + wave one — which are never modified.
@@ -253,7 +286,7 @@ Both are first-class; the mode toggle sits in the header.
 
 ```
 npm start            # static server (or any other file server)
-npm test             # node tests/run.js — 629 checks incl. the jsdom UI boot
+npm test             # node tests/run.js — 652 checks incl. the jsdom UI boot
 npm run lint         # eslint flat config — zero errors is the bar
 npm run extract      # regenerate /data from Tetech-main/index.html
 npm run build        # optional single-file dist/index.html for sharing

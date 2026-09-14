@@ -9,7 +9,7 @@
      online you always get the newest shell, offline the last one loads.
    - modules / styles / data / icons: stale-while-revalidate — instant
      loads, refreshed in the background. */
-const SW_VERSION = "nf-sw-3225f4a-034836";
+const SW_VERSION = "nf-sw-42b02ad-040905";
 const CORE = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon.svg"];
 
 self.addEventListener("install", e => {

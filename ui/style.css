@@ -107,6 +107,18 @@ button { font: inherit; cursor: pointer; }
 }
 #cardsToolbar .readout { flex: 1; }
 
+/* Idea Engine — spark card spans the grid and leads the wall of cards. */
+.sparkCard { grid-column: 1 / -1; }
+.sparkbody { padding: 4px 0 2px; }
+.sparkView {
+  font-weight: 700; font-size: 1.06rem; line-height: 1.35;
+  color: var(--cyan); text-shadow: 0 0 12px var(--glow-cyan);
+  padding: 4px 0 2px;
+}
+.sparkMeta { font-size: .8rem; margin-bottom: 6px; }
+.sparkrow { display: flex; flex-wrap: wrap; gap: 6px; padding: 5px 0 0; }
+.sparkrow .btn { white-space: nowrap; }
+
 /* ---------- cards ---------- */
 .card {
   background: linear-gradient(180deg, rgba(19,22,36,.55), rgba(13,15,24,.92)) , var(--panel);

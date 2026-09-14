@@ -1806,6 +1806,66 @@ section("Sounds wave two");
   ok(over === 0, "prompt caps hold across wave-two vocabulary (30 rolls)");
 }
 
+/* ---------------- v4.5 Idea Engine (sparks) ---------------- */
+section("Idea Engine (sparks)");
+{
+  const W = await import("../data/sparks-extra.js");
+  ok(E.SPARK_STATS.pools === 32 && E.SPARK_STATS.added >= 500,
+    "spark engine merges all 32 pools incl. the generated wave (" + E.SPARK_STATS.pools +
+    " pools, +" + E.SPARK_STATS.added + ", " + E.SPARK_STATS.entries + " sparks total)");
+  const minPool = Math.min(...Object.values(E.SPARK_POOLS).map(a => a.length));
+  ok(minPool >= 35, "every spark pool holds ≥35 entries after the wave (min " + minPool + ")");
+  const banned = /\b(minimal|minimalist|sparse|restrained|low[- ]?energy|weak|tiny|gentle|quiet)\b/i;
+  const vocalRe = new RegExp("\\b(" + (D.VOCAL_WORDS || []).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b", "i");
+  let dirty = 0;
+  for (const name in W.SPARK_EXTRA) for (const v of W.SPARK_EXTRA[name]) {
+    if (banned.test(v) || vocalRe.test(v)) dirty++;
+  }
+  ok(dirty === 0, "generated sparks are banned-word- and vocal-free");
+  /* seeded determinism */
+  E.setSeed(20260917);
+  const run1 = E.SPARK_KINDS.map(k => E.rollSpark(k));
+  E.setSeed(20260917);
+  const run2 = E.SPARK_KINDS.map(k => E.rollSpark(k));
+  ok(JSON.stringify(run1) === JSON.stringify(run2), "spark draws are deterministic per seed");
+  /* applies respect locks and semantics */
+  const s = E.defaultState();
+  ok(E.applyTitle(s, "TEST TITLE") && s.concept.title === "TEST TITLE", "applyTitle writes the concept title");
+  s.locks["concept-title"] = true;
+  ok(!E.applyTitle(s, "NOPE") && s.concept.title === "TEST TITLE", "applyTitle respects the title lock");
+  s.locks["concept-title"] = false;
+  E.applyMashup(s, "salt techno + tide tables");
+  ok(s.primaryStyle === "salt techno + tide tables" && s.primaryGenre === "" && s.secondaryStyle === "",
+    "applyMashup replaces the whole style identity");
+  /* wildcards */
+  const m = E.defaultState();
+  m.locks.kick = true;
+  const kickBefore = m.kick;
+  const r = E.megaChaos(m);
+  ok(!!r.line && typeof r.score === "number", "mega chaos returns a spark line + score");
+  ok(m.kick === kickBefore, "mega chaos respects locks");
+  ok(m.duration === "extended" && m.melodicForce === "dominant" && m.influence === "strong",
+    "mega chaos sets the max-energy frame");
+  const t = E.defaultState();
+  E.timeMachine(t);
+  ok([70, 80, 85, 90, 95, 100, 110, 120, 122, 124, 126, 128, 130, 132, 134, 136, 138, 140,
+    142, 144, 146, 148, 150, 152, 155, 160, 170, 180, 190, 200].includes(t.bpm),
+    "time machine picks a musical tempo (" + t.bpm + " BPM)");
+  const ld = E.luckyDip(E.defaultState());
+  ok(!!ld.vibe && typeof ld.score === "number", "lucky dip rolls a fresh track + vibe");
+  const rf = E.randomFocus(E.defaultState(), 6);
+  ok(!!rf.category && typeof rf.score === "number", "random focus maximizes a category (" + rf.category + ")");
+  const an = E.defaultState();
+  const out = E.anthemIdea(an);
+  ok(/ — .* → /.test(out) && an.melodicForce === "dominant", "anthem builder forges title + vibe + transform");
+  /* applied sparks keep the prompt inside its caps */
+  const p = E.defaultState();
+  E.applyTitle(p, E.SPARK_POOLS.SPARK_TITLES[0]);
+  E.applyTransform(p, E.SPARK_POOLS.SPARK_TRANSFORMS[0]);
+  E.applyChallenge(p, E.SPARK_POOLS.SPARK_CHALLENGES[0]);
+  ok(E.buildFullBrief(p).length <= 3000, "brief cap holds with applied sparks");
+}
+
 section("UI boot (jsdom)");
 await (async () => {
   let JSDOM;
@@ -1863,6 +1923,22 @@ await (async () => {
     ok(!/Bass:/.test(NF.buildStylePrompt()), "hidden card leaves the prompt");
     // undo / redo through the UI
     const doc = dom.window.document;
+    /* Idea Engine card */
+    ok(!!doc.querySelector("#sparkCard"), "Idea Engine card rendered");
+    ok(/\d+ sparks loaded/.test(doc.querySelector("#sparkCard .readout").textContent),
+      "spark count readout rendered");
+    ok(doc.querySelectorAll("#sparkCard [data-spark]").length === 10, "10 core spark buttons rendered");
+    doc.querySelector("#sparkCard [data-spark='1']").click(); /* Title */
+    const sparkText = doc.querySelector("#sparkView").textContent;
+    ok(sparkText && !/press any button/.test(sparkText), "clicking a spark button rolls a spark");
+    doc.querySelector("#sparkCard [data-sparkapply='title']").click();
+    ok(NF.get().concept.title === sparkText, "Apply title moves the spark into the concept");
+    doc.querySelector("#sparkCard [data-sparkwild='mega']").click();
+    ok(NF.get().duration === "extended" && NF.get().melodicForce === "dominant",
+      "Mega Chaos Roll reframes the track (extended + melody-dominant)");
+    doc.querySelector("#sparkCard [data-sparkwild='time']").click();
+    ok(typeof NF.get().bpm === "number" && NF.get().bpm >= 70, "Time Machine rerolls the tempo");
+    ok(doc.querySelector("#sparkView").textContent.length > 0, "spark readout survives re-renders");
     ok(!!doc.querySelector("#undoBtn") && !!doc.querySelector("#redoBtn"), "undo/redo buttons rendered");
     const kickNow = NF.get().kick;
     doc.querySelector('[data-roll="kick"]').click();

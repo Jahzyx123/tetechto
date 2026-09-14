@@ -7,3 +7,4 @@ export * from "./state.js";
 export * from "./prompt.js";
 export * from "./roll.js";
 export * from "./share.js";
+export * from "./spark.js";
