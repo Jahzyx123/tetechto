@@ -10,6 +10,42 @@ Rebuilt from the legacy 600 KB single-file app into plain ES modules with
 python3 -m http.server 8080      # then open http://localhost:8080
 ```
 
+## What's new in v4.3 — structures & hybrid sound vocabularies
+
+Continuing the "concepts & sounds for everything that rolls" upgrade into the
+two remaining thin spots: the arrangement pools and the hybrid genre sound
+vocabularies.
+
+* **Structure wave — arrangements ×7.5** — the Arrangement atom rolls on every
+  track but drew from just 40 verbatim chains, the thinnest pool per roll in
+  the app. A new deterministic generator, `tools/expand-structures.js`, adds
+  **+260 standard section-chains** (intro → build → drop → breakdown → climax
+  → outro shapes) and **+170 no-break chains** → `data/structure-extra.js`,
+  merged at runtime into `ARRANGEMENTS_FULL` / `NO_STOP_ARRANGEMENTS_FULL`.
+  The 40 verbatim chains (and the 12 fast-start shapes up front) are untouched
+  — the generated entries append after them.
+* **No-stop integrity** — every generated no-break chain is refused at the
+  source if it contains any break-word (break / breakdown / bridge / gap /
+  pause / silence / vacuum / blackout / stutter), so a NO-STOP track can never
+  grow a break by re-roll.
+* **World-safe language** — arrangement text flows through `genreSafeText`
+  for organic and hybrid genres, which strips techno-only nouns and a set of
+  extreme adjectives. The generated vocabulary is built to survive both maps
+  as-written (only the intended `drop→refrain` / `euphoric→joyous` rewrites
+  apply), so chains never degrade into fragments in any rolled genre.
+* **Hybrid sound coverage 21 → 92 atom keys** — hybrid genres (rock, shoegaze,
+  post-punk, metal, funk…) previously fell back to organic, then techno
+  vocabulary for ~71 of the ~92 sound atoms. `tools/expand-acoustic.js` now
+  emits a full hybrid blend (amps, pedals, live kits, tape and synths) →
+  `data/acoustic.js`, raising `HYBRID_POOLS` from **377 to 1,541 entries**
+  across all 92 keys. Every organic atom key now has its own hybrid pool, so
+  no techno term leaks into hybrid prompts. The organic pools are
+  byte-identical to v4.2.
+* Same guarantees as the prior waves: deterministic (seeded), banned-word free,
+  instrumental/vocal-safe, deduped against the verbatim pools — which are never
+  modified. `npm run expand` now runs the sounds, concepts, structures and
+  acoustic generators.
+
 ## What's new in v4.2 — concepts & sounds for everything that rolls
 
 * **Concept pools ×8.5** — the Concept card used to roll from the verbatim
@@ -185,7 +221,7 @@ Both are first-class; the mode toggle sits in the header.
 
 ```
 npm start            # static server (or any other file server)
-npm test             # node tests/run.js — 590 checks incl. the jsdom UI boot
+npm test             # node tests/run.js — 612 checks incl. the jsdom UI boot
 npm run lint         # eslint flat config — zero errors is the bar
 npm run extract      # regenerate /data from Tetech-main/index.html
 npm run build        # optional single-file dist/index.html for sharing

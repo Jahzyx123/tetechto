@@ -11,7 +11,7 @@ import {
   defaultState, roll, rollBatch, buildStylePrompt, buildFullBrief, scorePrompt,
   encodeState, decodeState, setSeed, weirdMix, clone,
   SOUND_CARDS, unhideAllSoundCards, autoFitSounds, setSoundLite, setNoStop, setHideBeats, STYLE_STATS,
-  CONCEPT_POOL, MELODY_CONCEPT_POOL
+  CONCEPT_POOL, MELODY_CONCEPT_POOL, ARRANGEMENTS_FULL
 } from "../engine/index.js";
 import { openPicker } from "./picker.js";
 import { History, bindUndoKeys } from "./history.js";
@@ -878,6 +878,10 @@ for (const k of Object.keys(CONCEPT_POOL)) {
 for (const k of Object.keys(MELODY_CONCEPT_POOL)) {
   const e = PICKER_POOLS["melodyConcept-" + k];
   if (e && e.arr) e.arr = () => MELODY_CONCEPT_POOL[k];
+}
+{ /* arrangement picker → full merged pool */
+  const e = PICKER_POOLS["arrangement"];
+  if (e && e.arr) e.arr = () => ARRANGEMENTS_FULL;
 }
 
 ATOMS.forEach(a => {

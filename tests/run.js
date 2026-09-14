@@ -1604,6 +1604,105 @@ section("PWA (manifest + service worker)");
   ok(/SW_VERSION/.test(stamp), "deploy stamp bumps the service-worker cache version");
 }
 
+/* ---------------- v4.3 structure + hybrid sound expansion ---------------- */
+section("Structure expansion (arrangements)");
+{
+  const SX = await import("../data/structure-extra.js");
+  const C = await import("../data/concept.js");
+  ok(SX.EXTRA_ARRANGEMENTS.length >= 200,
+    "structure generator adds ≥200 standard section-chains (+" + SX.EXTRA_ARRANGEMENTS.length + ")");
+  ok(SX.EXTRA_NO_STOP_ARRANGEMENTS.length >= 150,
+    "structure generator adds ≥150 no-break chains (+" + SX.EXTRA_NO_STOP_ARRANGEMENTS.length + ")");
+  const banned = /\b(minimal|minimalist|sparse|restrained|low[- ]?energy|weak|tiny|gentle|quiet|soft|thin|calm|subdued|delicate|faint|mellow)\b/i;
+  const vocalRe = new RegExp("\\b(" + (D.VOCAL_WORDS || []).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b", "i");
+  const breakRe = /\b(break|breaks|breakdown|breakdowns|breakbeat|bridge|bridges|gap|gaps|pause|pauses|silence|silent|vacuum|blackout|rest|breather|lull|stutter|stutters)\b/i;
+  let dirty = 0;
+  for (const t of SX.EXTRA_ARRANGEMENTS) if (banned.test(t) || vocalRe.test(t)) dirty++;
+  for (const t of SX.EXTRA_NO_STOP_ARRANGEMENTS) if (banned.test(t) || vocalRe.test(t)) dirty++;
+  ok(dirty === 0, "generated arrangements are banned-word- and vocal-free");
+  ok(SX.EXTRA_NO_STOP_ARRANGEMENTS.every(t => !breakRe.test(t)),
+    "every generated no-break chain refuses break-words at the source");
+  ok(E.NO_STOP_ARRANGEMENTS_FULL.every(t => !breakRe.test(t)),
+    "the merged no-stop pool contains no break-word anywhere");
+  const verbatim = new Set(C.ARRANGEMENTS.map(x => String(x).toLowerCase().trim()));
+  ok(SX.EXTRA_ARRANGEMENTS.every(t => !verbatim.has(t.toLowerCase().trim())),
+    "generated chains never duplicate the verbatim arrangements");
+  ok(E.ARRANGEMENTS_FULL.length >= C.ARRANGEMENTS.length + 200,
+    "merged arrangement pool reaches ≥" + (C.ARRANGEMENTS.length + 200) + " (" + E.ARRANGEMENTS_FULL.length + ")");
+  ok(E.NO_STOP_ARRANGEMENTS_FULL.length >= 160,
+    "merged no-stop arrangement pool reaches ≥160 (" + E.NO_STOP_ARRANGEMENTS_FULL.length + ")");
+  ok(E.ARRANGEMENTS_FULL.slice(0, 12).join("|") === C.ARRANGEMENTS.slice(0, 12).join("|"),
+    "the 12 fast-start arrangements keep their positions at the front of the merged pool");
+  /* rolls actually reach the generated chains (standard duration appends ".") */
+  const s = E.defaultState(); s.duration = "standard";
+  const unwrap = a => a.replace(/\.$/, "");
+  let hitExtra = 0, hitNsExtra = 0;
+  const hand = new Set(E.NO_STOP_ARRANGEMENTS.map(x => x.toLowerCase()));
+  for (let i = 0; i < 300; i++) {
+    const a = unwrap(E.pickArrangementFor(s));
+    if (!verbatim.has(a.toLowerCase().trim())) hitExtra++;
+    const n = unwrap(E.pickNoStopArrangement(s));
+    if (!hand.has(n.toLowerCase().trim())) hitNsExtra++;
+  }
+  ok(hitExtra >= 60, "arrangement rolls draw from the expansion (" + hitExtra + "/300 outside verbatim)");
+  ok(hitNsExtra >= 40, "no-stop rolls draw from the expansion (" + hitNsExtra + "/300 outside hand-written)");
+  /* duration wrappers still shape the line */
+  ok(E.pickArrangementFor({ ...s, duration: "compact" }).startsWith("Tight intro, "),
+    "compact wrapper survives the expanded pool");
+  ok(E.pickArrangementFor({ ...s, duration: "extended" }).startsWith("Long-form journey: "),
+    "extended wrapper survives the expanded pool");
+  ok(E.pickNoStopArrangement({ ...s, duration: "compact" }).startsWith("Instant groove intro, "),
+    "no-stop compact wrapper survives the expanded pool");
+  /* prompt caps hold with the richer arrangement vocabulary */
+  let over = 0;
+  for (let i = 0; i < 30; i++) {
+    E.roll(s, "everything");
+    if (E.buildStylePrompt(s).length > 1000 || E.buildFullBrief(s).length > 3000) over++;
+  }
+  ok(over === 0, "prompt caps hold with expanded arrangements across 30 rolls");
+}
+
+section("Hybrid sound vocabulary (full atom coverage)");
+{
+  const A = await import("../data/acoustic.js");
+  const orgKeys = Object.keys(A.ORGANIC_POOLS);
+  const hybKeys = Object.keys(A.HYBRID_POOLS);
+  ok(hybKeys.length >= 90, "hybrid pools cover ≥90 atom keys (" + hybKeys.length + ")");
+  ok(orgKeys.every(k => (A.HYBRID_POOLS[k] || []).length > 0),
+    "every organic atom key has its own hybrid vocabulary (no techno fallback left)");
+  const total = hybKeys.reduce((n, k) => n + A.HYBRID_POOLS[k].length, 0);
+  ok(total >= 1200, "hybrid pools carry ≥1200 entries (" + total + ")");
+  const banned = /\b(minimal|minimalist|sparse|restrained|low[- ]?energy|weak|tiny|gentle|quiet|soft|thin|calm|subdued|delicate|faint|mellow)\b/i;
+  const vocalRe = new RegExp("\\b(" + (D.VOCAL_WORDS || []).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b", "i");
+  let dirty = 0, dupes = 0;
+  for (const k of hybKeys) {
+    const seen = new Set();
+    for (const t of A.HYBRID_POOLS[k]) {
+      if (banned.test(t) || vocalRe.test(t)) dirty++;
+      const key = t.toLowerCase().trim();
+      if (seen.has(key)) dupes++;
+      seen.add(key);
+    }
+  }
+  ok(dirty === 0, "hybrid vocabulary is banned-word- and vocal-free");
+  ok(dupes === 0, "hybrid pools contain no duplicates");
+  /* poolFor must resolve the hybrid pools for hybrid genres — no leak of
+     organic/techno vocab for keys the hybrid set now owns. */
+  const s = E.defaultState();
+  s.techOnly = false; s.styleFit = true; s.primaryGenre = "Shoegaze";
+  let mismatched = 0;
+  for (const k of ["kick", "snare", "hats", "groove", "leadVoice", "reverbType", "distortionType", "filterType", "energyCurve", "chordProg"]) {
+    const got = E.poolFor(s, k);
+    const exp = E.MELODY_KEYS.has(k) ? A.HYBRID_POOLS[k].filter(x => !E.isRelaxMelody(x)) : A.HYBRID_POOLS[k];
+    if (JSON.stringify(got) !== JSON.stringify(exp)) mismatched++;
+  }
+  ok(mismatched === 0, "poolFor hands hybrid genres the hybrid pools (10/10 keys checked)");
+  const organic = { ...s, primaryGenre: "Jazz" };
+  const expKick = E.MELODY_KEYS.has("kick") ? A.ORGANIC_POOLS.kick.filter(x => !E.isRelaxMelody(x)) : A.ORGANIC_POOLS.kick;
+  ok(JSON.stringify(E.poolFor(organic, "kick")) === JSON.stringify(expKick),
+    "organic genres still resolve the organic pools");
+}
+
 section("UI boot (jsdom)");
 await (async () => {
   let JSDOM;
