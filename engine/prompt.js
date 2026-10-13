@@ -20,6 +20,7 @@ import { COUNTER_ROLE, VOICE_ROLE } from "../data/atoms.js";
 import { pick } from "./prng.js";
 import { keyName, camelot, scaleOf, microOf } from "./music.js";
 import { genreWorld, genreSafeText } from "./world.js";
+import { contentWords, addWords, wordSet, freshWords, fillerSqueeze, densityScore, variety, coverage, fillerCounts } from "./density.js";
 
 /* Vocal direction wave two: the verbatim list plus the generated wave
    (vocal words are intentional here — vocal mode is user-selected). */
@@ -432,25 +433,26 @@ export function dropLabelNoun(label, v) {
   return out.length >= 3 ? out : v;
 }
 
-export function densify(s, body, budget) {
-  let out = body;
-  /* In no-techno mode the body has already been genre-rewritten, so a raw
-     pool value ("synth-driven hook") won't match its rewritten form
-     ("driven hook") and would be packed in twice. Compare — and insert —
-     the rewritten text. */
-  const fit = v => tightenPhrase(stripVocalCue(!s.techOnly ? genreSafeText(s, String(v), true) : String(v)));
-  const has = v => out.toLowerCase().includes(String(v).toLowerCase());
+/* The output form of a rolled value: everything the prompt pipeline would
+   rewrite (genre-safe rephrasing, vocal-cue neutralising, filler collapse)
+   applied up-front, so packing and the coverage report both measure the
+   text that actually lands in the box. */
+function makeFit(s) {
+  return v => tightenPhrase(stripVocalCue(!s.techOnly ? genreSafeText(s, String(v), true) : String(v)));
+}
 
-  /* collect everything still missing, grouped, shortest-first.
-     Hidden sound cards are collected into a SEPARATE backfill list under
-     SOUND-LITE: they only enter the prompt after every visible section
-     has had its turn — "hide it, but make it appear if there is space". */
+/* Every rolled detail that may be packed, in PACK_ORDER, with the same
+   visibility rules the prompt builder uses (hidden cards, NO-STOP
+   appearance cues, HIDE-BEATS voice rule). densify() and the coverage
+   report share this, so they can never disagree about what was available. */
+export function collectPacking(s) {
+  const fit = makeFit(s);
   const groups = [], backfill = [];
   for (const [label, keys] of PACK_ORDER) {
     const card = PACK_CARD[label];
     const parked = !!(card && s.hidden[card]);
     if (parked && !(s.soundLite && SOUND_LITE_LABELS.has(label))) continue;
-    const vals = [];
+    const items = [];
     for (const k of keys) {
       const v = s[k];
       if (!v || typeof v !== "string") continue;
@@ -464,29 +466,53 @@ export function densify(s, body, budget) {
          pure pattern text. */
       if (s.hideBeats && k === "leadVoice") continue;
       const w = fit(v);
-      if (!w || has(w) || vals.includes(w)) continue;
-      vals.push(w);
+      if (!w || items.some(it => it.v === w)) continue;
+      items.push({ key: k, v: w, words: contentWords(w), pinned: !!(s.pins && s.pins.includes(k)) });
     }
-    if (vals.length) {
-      vals.sort((a, b) => a.length - b.length);   // three short sounds beat one long one
-      (parked ? backfill : groups).push({ label, vals, open: false });
-    }
+    if (items.length) (parked ? backfill : groups).push({ label, items, open: false });
   }
+  return { groups, backfill };
+}
+
+export function densify(s, body, budget, opts = {}) {
+  const labels = opts.labels !== false;   // false = tag mode: descriptors only
+  let out = body;
+  const has = v => out.toLowerCase().includes(String(v).toLowerCase());
+  const { groups, backfill } = collectPacking(s);
   if (!groups.length && !backfill.length) return out;
+
+  /* running index of what has already been said: makes "does this detail
+     add anything" a set lookup instead of a re-scan of the prompt */
+  const cur = wordSet(out);
 
   const esc = x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   /* [^.] would stop at the decimal in "2.5s decay" and splice text into
      the middle of a value; only treat ". " (period + space) as a break. */
   const clauseRe = label => new RegExp("((?:^|\\. )" + esc(label) + ":(?:[^.]|\\.(?! ))*)", "i");
-  for (const g of groups) g.open = clauseRe(g.label).test(out);
+  if (labels) for (const g of groups) g.open = clauseRe(g.label).test(out);
 
+  /* what this detail costs in characters right now */
+  function cost(g, item) {
+    if (!labels) return 2 + item.v.length;
+    return g.open ? 2 + item.v.length : 2 + g.label.length + 2 + item.v.length;
+  }
+  /* what it buys: new content words per character, plus a pin override */
+  function score(g, item) {
+    const fresh = freshWords(item.words, cur);
+    const repeat = item.words.length - fresh;
+    return densityScore(fresh, cost(g, item), repeat) + (item.pinned ? 100 : 0);
+  }
   /* append `v` to g's clause (cheap: ", v") or start the clause (costly:
      ". Label: v"). Returns false if it wouldn't fit. */
-  function place(g, vRaw) {
-    const v = g.open ? dropLabelNoun(g.label, vRaw) : vRaw;
-    const cost = g.open ? 2 + v.length : 2 + g.label.length + 2 + v.length;
-    if (out.length + cost > budget) return false;
-    if (g.open) {
+  function place(g, itemRaw) {
+    const v = (labels && g.open) ? dropLabelNoun(g.label, itemRaw.v) : itemRaw.v;
+    const c = labels
+      ? (g.open ? 2 + v.length : 2 + g.label.length + 2 + v.length)
+      : 2 + v.length;
+    if (out.length + c > budget) return false;
+    if (!labels) {
+      out += ", " + v;
+    } else if (g.open) {
       const re = clauseRe(g.label);
       if (re.test(out)) out = out.replace(re, m => m + ", " + v);
       else out += ", " + v;
@@ -494,53 +520,141 @@ export function densify(s, body, budget) {
       out += ". " + g.label + ": " + v;
       g.open = true;
     }
+    /* the INSERTED form is what was said (dropLabelNoun trims the label's
+       own noun out of the phrase), so index exactly that */
+    const words = contentWords(v);
+    addWords(cur, words);
+    itemRaw.v = v;
+    itemRaw.words = words;
     return true;
   }
-
-  /* Pass 1 — round-robin one item per section, so every part of the kit
-     gets represented before any single section goes deep. */
-  let progress = true;
-  while (progress) {
-    progress = false;
-    for (const g of groups) {
-      if (!g.vals.length) continue;
-      if (place(g, g.vals[0])) { g.vals.shift(); progress = true; }
-      else break;                                  // nothing shorter will fit either
+  /* the group's highest-density detail that fits; sizes down when the best
+     one is too long for the characters left */
+  function placeBest(g) {
+    let best = -1, bestScore = -Infinity;
+    for (let i = 0; i < g.items.length; i++) {
+      const it = g.items[i];
+      if (has(it.v)) { g.items.splice(i, 1); i--; continue; }
+      const sc = score(g, it);
+      if (sc > bestScore) { bestScore = sc; best = i; }
     }
+    if (best < 0) return false;
+    if (place(g, g.items[best])) { g.items.splice(best, 1); return true; }
+    const rest = g.items.slice().sort((a, b) => a.v.length - b.v.length);
+    for (const it of rest) {
+      if (place(g, it)) { g.items.splice(g.items.indexOf(it), 1); return true; }
+    }
+    return false;
   }
-
-  /* Pass 2 — spend the leftovers globally shortest-first, preferring
-     sections whose clause already exists (no label to pay for). This is
-     what turns the last ~80 characters into 2-4 extra sounds instead of
-     dead space. */
-  const rest = [];
-  for (const g of groups) for (const v of g.vals) rest.push({ g, v });
-  rest.sort((a, b) => (a.g.open ? a.v.length : a.v.length + a.g.label.length) -
-                      (b.g.open ? b.v.length : b.v.length + b.g.label.length));
-  for (const { g, v } of rest) { if (has(v)) continue; place(g, v); }
-
-  /* Pass 3 — SOUND-LITE backfill. The parked sound-design sections only
-     get packed now, and only as long as characters remain: style /
-     melody / pattern content always wins; FX details appear strictly if
-     there is space. */
-  if (backfill.length) {
-    let bp = true;
-    while (bp) {
-      bp = false;
-      for (const g of backfill) {
-        if (!g.vals.length) continue;
-        if (place(g, g.vals[0])) { g.vals.shift(); bp = true; }
-        else break;
+  /* globally best value-per-character still on the table */
+  function pickBest(list) {
+    let pick = null, bestScore = -Infinity;
+    for (const g of list) {
+      for (const it of g.items) {
+        if (has(it.v)) continue;
+        const sc = score(g, it);
+        if (sc > bestScore) { bestScore = sc; pick = { g, it }; }
       }
     }
-    const restB = [];
-    for (const g of backfill) for (const v of g.vals) restB.push({ g, v });
-    restB.sort((a, b) => (a.g.open ? a.v.length : a.v.length + a.g.label.length) -
-                         (b.g.open ? b.v.length : b.v.length + b.g.label.length));
-    for (const { g, v } of restB) { if (has(v)) continue; place(g, v); }
+    return pick;
   }
 
+  /* Fill the box: one item per group first (a full kit beats a deep one),
+     then strictly by information per character — each detail is judged on
+     how much it adds that the prompt does not already say. Nothing is ever
+     truncated: a value either fits whole or makes room for a shorter one. */
+  function fill(list) {
+    for (let round = 0; round < 10; round++) {
+      let progress = false;
+      for (const g of list) if (g.items.length && placeBest(g)) progress = true;
+      for (let guard = 0; guard < 600; guard++) {
+        const pick = pickBest(list);
+        if (!pick) break;
+        const i = pick.g.items.indexOf(pick.it);
+        if (i < 0) continue;
+        if (place(pick.g, pick.it)) { pick.g.items.splice(i, 1); progress = true; }
+        else { pick.g.items.splice(i, 1); }      // out only grows: it can't fit later
+      }
+      if (!progress) break;
+    }
+  }
+
+  fill(groups);
+  /* SOUND-LITE backfill: parked sound-design sections only get packed after
+     every visible section had its turn, and only while characters remain. */
+  if (backfill.length) fill(backfill);
+
+  /* Squeeze the filler repetition the generated pools carry ("…colour
+     drive, …push drive, …web drive") and spend the reclaimed characters on
+     details that had no room. Idempotent: a second squeeze saves nothing. */
+  const sq = fillerSqueeze(out);
+  if (sq.saved > 0) {
+    out = sq.text;
+    fill(groups);
+    if (backfill.length) fill(backfill);
+  }
   return out;
+}
+
+/* Every rolled detail the packer can reach, flattened in packing order.
+   The report and the packer share this list, so the meter can never
+   disagree with what actually had a chance to appear. */
+export function packableItems(s) {
+  const { groups, backfill } = collectPacking(s);
+  const out = [];
+  for (const list of [groups, backfill]) {
+    for (const g of list) {
+      for (const it of g.items) out.push({ key: it.key, label: g.label, value: it.v, pinned: !!it.pinned });
+    }
+  }
+  return out;
+}
+
+/* ---------------------------- BASE PROMPT REPORT ----------------------------
+   Everything the output panel needs to answer "what is in Suno's box, what
+   is not, and what would one more character buy": the text, the characters
+   used against the 1000-char cap, every rolled detail that made it in, the
+   ones that did not (best-first, with the characters each would cost), and
+   the variety/filler readouts. */
+export function promptReport(state) {
+  const text = buildStylePrompt(state);
+  const cov = coverage(packableItems(state), text, 1000);
+  return {
+    text, shape: state.promptShape === "tags" ? "tags" : "labelled",
+    chars: text.length, budget: 1000, free: cov.free,
+    inBox: cov.inBox, missing: cov.missing,
+    inCount: cov.inCount, rolledCount: cov.rolledCount,
+    variety: variety(text), filler: fillerCounts(text)
+  };
+}
+
+/* ---------------------------- TAG MODE ----------------------------
+   Suno's style box also accepts a flat descriptor list. Every label the
+   block builders emit is stripped at clause starts, which frees ~90
+   characters — roughly three more rolled details — and reads like the
+   comma-tag prompts most Suno users write by hand. */
+export const CLAUSE_LABELS = [
+  "Emotion-led melody", "Melody-driven", "Melody-dominant anthem",
+  "Melody pattern focus", "Melody concept", "Chord Progression",
+  "Rhythm Pattern", "Mix/Master", "Spatial/Mod", "Groove/Melodic",
+  "Texture/FX", "Techno Lab", "Second line", "Counter-melody",
+  "Sound Design", "Emotion", "Melody-only", "Counter", "Details",
+  "Non-stop", "Arrangement", "Concept", "Chords", "Rhythm",
+  "Lead", "Harmony", "Bass", "Drums", "Ensemble", "Tone", "Mix",
+  "Space", "Texture", "FX", "Arc", "2nd"
+];
+const TAG_LABEL_RE = new RegExp(
+  "(^|\\. )(?:" + CLAUSE_LABELS.map(x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + "):\\s*", "g");
+
+export function toTagList(text) {
+  let t = String(text || "");
+  let prev = null;
+  /* run to a fixed point: removing one label can expose another at the
+     same clause start (". Melody-only: Lead: …") */
+  while (t !== prev) { prev = t; t = t.replace(TAG_LABEL_RE, "$1"); }
+  t = t.replace(/\.\s+/g, ", ");
+  t = t.replace(/,\s*,/g, ",").replace(/,\s*\./g, ".").replace(/\s{2,}/g, " ");
+  return t.trim();
 }
 
 /* A clause whose values were all stripped by the sanitizer leaves a bare
@@ -938,6 +1052,15 @@ export function buildStylePrompt(state) {
   body = densify(s, body, 1000 - reserve);
   body = sanitize(s, body);
   if (!s.techOnly) body = genreSafeText(s, body, protectForms);
+  /* TAG MODE — the flat comma-tag form. Dropping the section labels frees
+     ~90 characters, which the second densify() pass spends on details that
+     had no room in the labelled form. */
+  if (s.promptShape === "tags") {
+    body = toTagList(body);
+    body = densify(s, body, 1000 - reserve, { labels: false });
+    body = sanitize(s, body);
+    if (!s.techOnly) body = genreSafeText(s, body, protectForms);
+  }
   if (s.structure && !s.hidden.styleCard) body += TAGS;
   const v = s.instrumental ? vocalLineCompact(s) : vocalLine(s);
   let out = normalizePrompt(body + "." + (v ? " " + v : ""));
@@ -1070,6 +1193,22 @@ export function fmtTime(sec) { const m = Math.floor(sec / 60), x = Math.round(se
 /* Words that carry no sonic information -- used for the variety metric. */
 const STOP_WORDS = new Set(["with","and","the","that","then","into","over","under","from","this","a","an","of","in","on","at","to","for","bpm","no","vocals","instrumental"]);
 
+/* Every form a rolled value can legitimately take inside a built prompt:
+   the raw pool string plus each output-time rewrite (tightened, live
+   stripped, vocal-neutralised, genre-rephrased). Scoring checks them all,
+   so a value counts as "in the box" no matter which pipeline pass reached
+   it — and the check works in labelled and tag shape alike. */
+export function valueForms(s, v) {
+  const raw = String(v || "");
+  const forms = [raw, tightenPhrase(raw), stripLive(raw), stripVocalCue(tightenPhrase(raw))];
+  if (!s.techOnly) forms.push(tightenPhrase(genreSafeText(s, raw, true)));
+  return forms.filter(Boolean);
+}
+export function valueIn(s, text, v) {
+  const sp = String(text || "");
+  return valueForms(s, v).some(f => sp.includes(f));
+}
+
 export function scorePrompt(state) {
   const s = state;
   const sp = buildStylePrompt(s);
@@ -1094,9 +1233,7 @@ export function scorePrompt(state) {
     for (const k of keys) {
       const v = s[k];
       if (!v || typeof v !== "string") continue;
-      const forms = [v, tightenPhrase(v), stripLive(v), stripVocalCue(tightenPhrase(v))];
-      if (!s.techOnly) forms.push(tightenPhrase(genreSafeText(s, v, true)));
-      const hit = forms.find(f => f && sp.includes(f));
+      const hit = valueForms(s, v).find(f => sp.includes(f));
       if (hit) { soundChars += hit.length; soundCount++; }
     }
   }
@@ -1117,14 +1254,17 @@ export function scorePrompt(state) {
     note: (words.length - uniq) + " repeated words of " + words.length + " (" + Math.round(ratio * 100) + "% unique)"
   });
 
-  /* Section coverage across every labelled block the packer can emit. */
-  const LABELS = ["Emotion:", "Lead:", "Harmony:", "Bass:", "Drums:", "Tone:", "Mix:", "Space:", "Texture:", "FX:", "Arc:"];
-  const present = LABELS.filter(l => sp.includes(l)).length;
-  const cScore = Math.round(present / LABELS.length * 100);
+  /* Section coverage — read from the CONTENT, not the labels, so it means
+     the same thing in labelled and tag shape. A section counts as present
+     when at least one of its rolled details reached the box; hiding a card
+     takes its content away and the score drops with it. */
+  const present = PACK_ORDER.filter(([, keys]) =>
+    keys.some(k => typeof s[k] === "string" && s[k] && valueForms(s, s[k]).some(f => sp.includes(f)))).length;
+  const cScore = Math.round(present / PACK_ORDER.length * 100);
   items.push({
     label: "Section coverage", score: cScore,
-    note: present + " of " + LABELS.length + " sections present" +
-      (present < LABELS.length ? " — unhide cards to add more." : " — full spread.")
+    note: present + " of " + PACK_ORDER.length + " sections present" +
+      (present < PACK_ORDER.length ? " — unhide cards to add more." : " — full spread.")
   });
 
   /* Command coverage — the Full Brief's command layer (concept, melody
@@ -1163,7 +1303,10 @@ export function scorePrompt(state) {
       (fbCmd >= 420 ? " — brief fully commanded." : fbCmd >= 300 ? " — good command layer." : " — MAX rolls fuller commands.")
   });
 
-  const melo = /Lead:|Melody-driven|Melody-dominant/.test(sp);
+  /* Melodic clarity — content-based, so tag shape is not punished for
+     dropping the "Lead:" label the melody is still there through. */
+  const meloKeys = ["leadVoice", "leadPerf", "contour", "rhythm", "scaleRun", "intervalLeap", "ornamentType"];
+  const melo = meloKeys.some(k => typeof s[k] === "string" && s[k] && valueIn(s, sp, s[k]));
   const force = s.melodicForce || "balanced";
   const meloScore = !melo ? 0 : force === "light" ? 72 : force === "balanced" ? 92 : 100;
   items.push({

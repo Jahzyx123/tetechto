@@ -41,7 +41,8 @@ const MAP = {
   cm: "counterMelody", cmr: "counterMelodyRelation", vc: "voiceConcept", vr: "voiceRelation",
   slim: "slim", lfg: "lastFitGenre",
   slt: "soundLite", nst: "noStop", hbt: "hideBeats",
-  mx: "maxStyle"
+  mx: "maxStyle",
+  ps: "promptShape", pn: "pins"
 };
 
 export function encodeState(s) {

@@ -499,7 +499,14 @@ export function defaultState() {
     acidAmt: 60, driveAmt: 75,
     styleFit: true, lastFitGenre: "", noHandPerc: false,
     soundLite: false, noStop: false, hideBeats: false,
-    maxStyle: false
+    maxStyle: false,
+    /* Base-prompt shape: "labelled" (structured clauses) or "tags" (the
+       flat comma-tag list Suno users write by hand — the section labels
+       cost ~90 characters, which the packer spends on more details). */
+    promptShape: "labelled",
+    /* Details the user pinned: pinned atoms are packed first, so a rolled
+       detail that keeps missing the 1000-char box can be forced in. */
+    pins: []
   };
 }
 

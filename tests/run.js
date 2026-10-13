@@ -1959,6 +1959,136 @@ section("Idea Engine (sparks)");
   ok(E.buildFullBrief(p).length <= 3000, "brief cap holds with applied sparks");
 }
 
+section("Base prompt upgrade (density engine, squeeze, pins, shapes)");
+{
+  /* ---------- the packer is judged on the box it fills ---------- */
+  let over = 0, freeSum = 0, inSum = 0, rolledSum = 0, minIn = Infinity;
+  const states = [];
+  for (let i = 0; i < 60; i++) {
+    const st = E.defaultState();
+    st.techOnly = i % 2 === 0;
+    st.seed = 5150 + i * 313;
+    E.setSeed(st.seed);
+    E.roll(st, "everything");
+    states.push(st);
+    const r = E.promptReport(st);
+    if (r.chars > 1000) over++;
+    freeSum += r.free;
+    inSum += r.inCount;
+    rolledSum += r.rolledCount;
+    minIn = Math.min(minIn, r.inCount);
+  }
+  ok(over === 0, "60 rolls: the base prompt never exceeds the 1000-char box");
+  ok(freeSum / 60 <= 40, "the box is filled, not left half empty (avg " + (freeSum / 60).toFixed(1) + " chars free)");
+  ok(inSum / rolledSum > 0.3,
+    "a third of every rolled detail reaches the box (avg " + (inSum / 60).toFixed(1) + " of " + (rolledSum / 60).toFixed(1) + ")");
+  ok(minIn >= 20, "even the thinnest roll keeps a full kit in the box (" + minIn + " details)");
+
+  /* ---------- the report tells the truth ---------- */
+  const st = states[3];
+  const report = E.promptReport(st);
+  ok(report.text === E.buildStylePrompt(st), "the report quotes the exact prompt it measured");
+  ok(report.inCount + report.missing.length === report.rolledCount, "in-box + missing = every rolled detail");
+  ok(report.inBox.every(x => report.text.includes(x.value)),
+    "every detail the report calls 'in' is really in the text");
+  ok(report.missing.every(x => !report.text.includes(x.value)),
+    "every detail the report calls 'missing' is really missing");
+  ok(report.missing.every(x => x.cost > 0 && x.fresh >= 0), "missing details carry a real character cost");
+  const freshSorted = report.missing.every((x, i, a) => i === 0 || a[i - 1].fresh >= x.fresh);
+  ok(freshSorted, "missing details are ranked best-first (most new words first)");
+  ok(report.variety.ratio > 0.8, "the box is mostly unique words (" + Math.round(report.variety.ratio * 100) + "%)");
+
+  /* ---------- squeeze: deterministic, grammatical, idempotent ---------- */
+  const messy = "Drums: perc colour drive, swing push drive, cross-rhythm web drive, pounding drop drive, mega-drive, overdrive. Bass: sub bass.";
+  const sq = E.fillerSqueeze(messy);
+  ok(sq.saved > 0, "filler squeeze frees characters (" + sq.saved + ")");
+  ok((sq.text.match(/\bdrive\b/gi) || []).length <= 3, "filler squeeze caps the 'drive' chains");
+  ok(/mega-drive/.test(sq.text) && /overdrive/.test(sq.text), "squeeze never eats hyphenated compounds");
+  ok(!/[,;]\s*[,;]/.test(sq.text) && !/\s,/.test(sq.text), "squeeze leaves no double punctuation or orphaned commas");
+  const sq2 = E.fillerSqueeze(sq.text);
+  ok(sq2.saved === 0 && sq2.text === sq.text, "squeeze is idempotent (a second pass frees nothing)");
+  const short = E.fillerSqueeze("drive drive drive");
+  ok(short.text.includes("drive"), "squeeze never strips a clause down to nothing");
+
+  /* ---------- both shapes: labelled clauses and flat tags ---------- */
+  let tagsOver = 0, tagsLeak = 0, tagsWorse = 0, tagsSound = 0, labSound = 0;
+  for (const st2 of states) {
+    const tagged = E.clone(st2);
+    tagged.promptShape = "tags";
+    const tp = E.buildStylePrompt(tagged);
+    if (tp.length > 1000) tagsOver++;
+    if (/^(Lead|Bass|Drums|Harmony|Tone|Mix|Space|Texture|FX|Arc|Emotion|Ensemble|Counter|Concept|Arrangement):/.test(tp) ||
+        /\. (Lead|Bass|Drums|Harmony|Tone|Mix|Space|Texture|FX|Arc|Emotion|Ensemble|Counter|Concept|Arrangement):/.test(tp)) tagsLeak++;
+    const ts = E.scorePrompt(tagged).soundCount;
+    const ls = E.scorePrompt(st2).soundCount;
+    tagsSound += ts;
+    labSound += ls;
+    if (ts < ls) tagsWorse++;
+  }
+  ok(tagsOver === 0, "tag shape holds the 1000-char cap on every roll");
+  ok(tagsLeak === 0, "tag shape really drops the section labels");
+  ok(tagsSound / 60 > labSound / 60 + 1,
+    "tag shape packs more details than labelled (" + (tagsSound / 60).toFixed(1) + " vs " + (labSound / 60).toFixed(1) + ")");
+  ok(tagsWorse / 60 < 0.30, "tag shape is not a coin-flip downgrade (worse on " + tagsWorse + "/60 rolls)");
+
+  /* the scorer must read CONTENT, not labels, or tag mode scores 0 for
+     sections it actually carries */
+  const tagState = E.clone(states[0]);
+  tagState.promptShape = "tags";
+  const tagScore = E.scorePrompt(tagState);
+  const cov = tagScore.items.find(i => i.label === "Section coverage").score;
+  const mel = tagScore.items.find(i => i.label === "Melodic clarity").score;
+  ok(cov >= 80, "section coverage reads content, not labels (" + cov + " in tag shape)");
+  ok(mel >= 72, "melodic clarity survives the label drop (" + mel + " in tag shape)");
+
+  /* ---------- pins: a detail that did not fit can be forced in ---------- */
+  let pinned = 0, tried = 0, pinOver = 0;
+  for (const st3 of states.slice(0, 24)) {
+    const rep = E.promptReport(st3);
+    const target = rep.missing.find(m => !m.pinned);
+    if (!target) continue;
+    tried++;
+    const pinState = E.clone(st3);
+    pinState.pins = [target.key];
+    const out = E.buildStylePrompt(pinState);
+    if (out.length <= 1000) pinOver++;
+    if (out.includes(target.value)) pinned++;
+  }
+  ok(tried >= 15, "most rolls have at least one detail with no room (" + tried + "/24)");
+  ok(pinned / tried >= 0.75, "pinning forces the detail into the box (" + pinned + "/" + tried + " rolls)");
+  ok(pinOver === tried, "pinned prompts still never exceed the cap");
+
+  /* ---------- determinism & share links across the new fields ---------- */
+  const st4 = E.clone(states[5]);
+  st4.promptShape = "tags";
+  st4.pins = [(E.promptReport(st4).missing[0] || {}).key].filter(Boolean);
+  const p4 = E.buildStylePrompt(st4);
+  ok(E.buildStylePrompt(E.clone(st4)) === p4, "the base prompt is deterministic per state");
+  const round = E.decodeState(E.encodeState(st4));
+  ok(round.promptShape === "tags", "share link round-trips the prompt shape");
+  ok(JSON.stringify(round.pins) === JSON.stringify(st4.pins), "share link round-trips the pins");
+  ok(E.buildStylePrompt(round) === p4, "a decoded share link rebuilds the identical prompt");
+  ok(E.defaultState().promptShape === "labelled" && Array.isArray(E.defaultState().pins),
+    "a state without the new fields still defaults cleanly");
+
+  /* ---------- safety rails survive the new pipeline ---------- */
+  let vocalLeaks = 0;
+  for (const st5 of states.slice(0, 30)) {
+    const tagged = E.clone(st5);
+    tagged.promptShape = "tags";
+    const tp = E.buildStylePrompt(tagged);
+    if (/no vocals|no lyrics/i.test(tp) === false) vocalLeaks++;
+    /* the policy line is the one place those words are intended */
+    const cueFree = tp.replace(/instrumental [^,]*,\s*no vocals[^.]*/i, "");
+    if (/\b(sing|sings|singing|choir|chants?|voicings?|hymns?|humming|whistling)\b/i.test(cueFree)) vocalLeaks++;
+  }
+  ok(vocalLeaks === 0, "tag shape keeps the instrumental policy and leaks no vocal cue");
+  const squeezy = E.clone(states[0]);
+  squeezy.primaryStyle = "Detroit Drive Techno";
+  const spq = E.buildStylePrompt(squeezy);
+  ok(spq.includes("Detroit Drive Techno") || spq.includes("Detroit Drive"), "squeeze never damages a style name");
+}
+
 section("UI boot (jsdom)");
 await (async () => {
   let JSDOM;
@@ -2216,6 +2346,49 @@ await (async () => {
     doc.querySelector("#newBtn").click();
     ok(NF.get().seed !== beforeNew, "🆕 New rolls a fresh state");
     ok(Object.values(NF.get().locks).every(v => v === false), "🆕 New resets every lock");
+
+    /* ---------- base-prompt meter (the 1000-char Suno box) ---------- */
+    const meter = doc.querySelector("#basePrompt");
+    ok(!!meter, "base-prompt meter rendered above the prompt");
+    ok(!!meter.querySelector(".bpBar > i"), "the meter draws a fill bar");
+    const meterText = meter.textContent;
+    ok(/\/1000/.test(meterText), "the meter reads the 1000-character budget");
+    ok(/details\s*\d+\/\d+/.test(meterText.replace(/\s+/g, " ")),
+      "the meter reports how many rolled details are in the box");
+    const shapeButtons = meter.querySelectorAll("#shapeSeg button");
+    ok(shapeButtons.length === 2, "both base-prompt shapes are offered");
+    ok(shapeButtons[0].getAttribute("aria-pressed") === "true" ||
+       shapeButtons[0].classList.contains("on"), "labelled shape is the default");
+    const labelledText = NF.buildStylePrompt();
+    ok(/Bass:/.test(labelledText), "labelled shape carries the section labels");
+    shapeButtons[1].click();
+    ok(NF.get().promptShape === "tags", "clicking TAGS switches the base-prompt shape");
+    const tagsText = NF.buildStylePrompt();
+    ok(tagsText.length <= 1000, "tag shape still fits the box (" + tagsText.length + ")");
+    ok(!/\. (Bass|Drums|Lead|Harmony|Tone|Mix|Space|Texture|FX|Arc):/.test(tagsText),
+      "tag shape drops the section labels");
+    ok(/no vocals/.test(tagsText), "tag shape keeps the instrumental policy");
+    /* the T shortcut flips it back */
+    doc.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "t", bubbles: true, cancelable: true }));
+    ok(NF.get().promptShape === "labelled", "T toggles back to the labelled shape");
+    ok(/Bass:/.test(NF.buildStylePrompt()), "labelled shape is restored in the prompt");
+
+    /* pins — click a "didn't fit" chip and the detail is forced into the box */
+    const pinChips = doc.querySelectorAll("#basePrompt [data-pin]");
+    ok(pinChips.length > 0, "the meter lists the details that did not fit (" + pinChips.length + ")");
+    {
+      const chip = pinChips[0];
+      const key = chip.dataset.pin;
+      chip.click();
+      ok(NF.get().pins.includes(key), "clicking a missing detail pins it");
+      const report = NF.promptReport();
+      ok(report.inBox.some(x => x.key === key), "a pinned detail is packed into the box (" + key + ")");
+      ok(NF.buildStylePrompt().length <= 1000, "pinned prompt still fits the box");
+      const repinned = doc.querySelector('#basePrompt [data-pin="' + key + '"]');
+      if (repinned) repinned.click();
+      ok(!NF.get().pins.includes(key), "clicking again unpins it");
+    }
+    ok(!!NF.promptReport, "the base-prompt report is exposed to the UI");
   } catch (e) {
     failures++;
     console.log("  ✗ FAIL: UI boot crashed — " + (e && e.stack || e));
