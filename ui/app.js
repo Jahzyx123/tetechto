@@ -14,7 +14,8 @@ import {
   CONCEPT_POOL, MELODY_CONCEPT_POOL, ARRANGEMENTS_FULL,
   SPARK_KINDS, EXTRA_KINDS, MAGIC2_KINDS, SPARK_STATS, rollSpark, kindPool,
   applyTitle, applyMashup, applyTransform, applyChallenge,
-  megaChaos, luckyDip, timeMachine, randomFocus, anthemIdea, maxAnthemIdea, keyName
+  megaChaos, luckyDip, timeMachine, randomFocus, anthemIdea, maxAnthemIdea, keyName,
+  promptReport
 } from "../engine/index.js";
 import { openPicker } from "./picker.js";
 import { History, bindUndoKeys } from "./history.js";
@@ -114,6 +115,10 @@ const CARD_DEFS = [
 ];
 const ATOMS_BY_CARD = {};
 ATOMS.forEach(a => { (ATOMS_BY_CARD[a.card] = ATOMS_BY_CARD[a.card] || []).push(a); });
+/* atom key → the row label the user sees, so the base-prompt meter can
+   name a detail that did not fit ("Ride", "Grain", "Vibrato"…) */
+const ATOM_LABEL = {};
+ATOMS.forEach(a => { ATOM_LABEL[a.key] = a.label; });
 
 /* ---------------------------- helpers ---------------------------- */
 const $ = sel => document.querySelector(sel);
@@ -255,7 +260,7 @@ function startFresh() {
     techOnly: state.techOnly, weirdness: state.weirdness, equalChance: state.equalChance,
     instrumental: state.instrumental, styleFit: state.styleFit, noHandPerc: state.noHandPerc,
     influence: state.influence, duration: state.duration, melodicForce: state.melodicForce,
-    structure: state.structure, maxStyle: state.maxStyle
+    structure: state.structure, maxStyle: state.maxStyle, promptShape: state.promptShape
   };
   const s = defaultState();
   Object.assign(s, keep);
@@ -586,9 +591,69 @@ function sparkHtml() {
 
 /* ---------------------------- output ---------------------------- */
 let currentTab = "style";
+/* ------------------ base-prompt meter (the Suno style box) ------------------
+   The Style Prompt is 1000 characters of hard budget: this panel shows
+   exactly how full the box is, how many rolled details reached it, and —
+   the useful part — which details did NOT fit. Clicking one pins it, and
+   pinned details are packed first on the next build, so anything the user
+   actually wants in the prompt can be forced in. */
+function basePromptHtml(r) {
+  const pct = Math.min(100, Math.round(r.chars / r.budget * 100));
+  const chips = r.missing.slice(0, 16);
+  const more = r.missing.length - chips.length;
+  return `
+    <div id="basePrompt">
+      <div class="bpRow">
+        <span class="bpBar" title="${r.chars} of ${r.budget} characters used"><i style="width:${pct}%"></i></span>
+        <span class="readout" title="Characters used / the Suno style box cap"><b>${r.chars}</b>/${r.budget} <span class="dim">· ${r.free} free</span></span>
+      </div>
+      <div class="bpRow">
+        <span class="readout" title="Rolled details from the cards that reached the box, of everything the cards rolled">details <b>${r.inCount}</b>/${r.rolledCount}</span>
+        <span class="readout" title="Unique content words — every repeat is a character not carrying a new detail">variety <b>${Math.round(r.variety.ratio * 100)}%</b></span>
+        <span class="seg" id="shapeSeg" role="group" aria-label="Base prompt shape">
+          <button type="button" data-shape="labelled" class="${r.shape === "labelled" ? "on" : ""}" title="Structured clauses — “Lead: …, Bass: …, Drums: …”">LABELLED</button>
+          <button type="button" data-shape="tags" class="${r.shape === "tags" ? "on" : ""}" title="Flat comma-tag list — drops ~90 characters of section labels and spends them on more rolled details">TAGS</button>
+        </span>
+      </div>
+      ${(state.pins || []).length ? `<div class="bpMissing">
+        <span class="readout" title="Pinned details are packed first, ahead of everything else. Click one to release it.">pinned — packed first:</span>
+        ${state.pins.map(k => `<button type="button" class="chip tiny on" data-pin="${k}"
+          title="${escapeHtml(String(state[k] || ""))} — click to unpin">📌 ${escapeHtml(ATOM_LABEL[k] || k)}</button>`).join("")}
+      </div>` : ""}
+      ${chips.length ? `<div class="bpMissing">
+        <span class="readout" title="Rolled details with no room left in the box. Pin one to pack it first on the next build.">didn't fit (${r.missing.length}) — click to 📌 pin:</span>
+        ${chips.map(m => `<button type="button" class="chip tiny ${m.pinned ? "on" : ""}" data-pin="${m.key}"
+          title="${escapeHtml(String(m.value))} — ${m.cost} chars, ${m.fresh} new word(s). Pinning packs it first."
+          >${m.pinned ? "📌" : "+"} ${escapeHtml(ATOM_LABEL[m.key] || m.key)}</button>`).join("")}
+        ${more > 0 ? `<span class="readout">+${more} more</span>` : ""}
+      </div>` : `<div class="bpMissing"><span class="readout">Everything you rolled is in the box.</span></div>`}
+    </div>`;
+}
+
+function togglePin(key) {
+  const pins = state.pins || (state.pins = []);
+  const i = pins.indexOf(key);
+  if (i >= 0) pins.splice(i, 1); else pins.push(key);
+  commit((i >= 0 ? "Unpin " : "Pin ") + key);
+  afterChange();
+  toast(i >= 0 ? "Unpinned " + (ATOM_LABEL[key] || key)
+    : "📌 " + (ATOM_LABEL[key] || key) + " pinned — it packs first now");
+}
+
+function setPromptShape(shape) {
+  if (state.promptShape === shape) return;
+  state.promptShape = shape;
+  commit("Prompt shape " + shape);
+  afterChange();
+  toast(shape === "tags"
+    ? "🏷 Tags — labels dropped, the freed characters carry more details"
+    : "🧾 Labelled — structured clauses ('Lead: … Bass: …')");
+}
+
 function renderOutput() {
   const host = $("#output");
-  const sp = buildStylePrompt(state);
+  const report = promptReport(state);
+  const sp = report.text;
   const fb = buildFullBrief(state);
   const text = currentTab === "style" ? sp : fb;
   const cap = currentTab === "style" ? 1000 : 3000;
@@ -599,6 +664,7 @@ function renderOutput() {
         <button data-tab="style" role="tab" aria-selected="${currentTab === "style" ? "true" : "false"}" class="${currentTab === "style" ? "on" : ""}">Style Prompt</button>
         <button data-tab="brief" role="tab" aria-selected="${currentTab === "brief" ? "true" : "false"}" class="${currentTab === "brief" ? "on" : ""}">Full Brief</button>
       </div>
+      ${basePromptHtml(report)}
       <div id="outbox">${escapeHtml(text)}</div>
       <div id="outmeta">
         <button class="btn small" id="copyOutBtn">📋 Copy</button>
@@ -627,6 +693,13 @@ function renderOutput() {
     const b = e.target.closest("button"); if (!b) return;
     currentTab = b.dataset.tab; renderOutput();
   });
+  /* base-prompt meter: shape toggle + "pin it in" chips */
+  const shapeSeg = host.querySelector("#shapeSeg");
+  if (shapeSeg) shapeSeg.addEventListener("click", e => {
+    const b = e.target.closest("button[data-shape]"); if (!b) return;
+    setPromptShape(b.dataset.shape);
+  });
+  host.querySelectorAll("[data-pin]").forEach(b => b.addEventListener("click", () => togglePin(b.dataset.pin)));
   host.querySelector("#copyOutBtn").addEventListener("click", () => copyText(text, currentTab === "style" ? "Style Prompt" : "Full Brief"));
   host.querySelector("#shareBtn").addEventListener("click", () =>
     copyText(location.origin + location.pathname + "?s=" + encodeState(state), "Share link"));
@@ -937,6 +1010,7 @@ const SHORTCUTS = [
   ["G", "Toggle batch lab"],
   ["S", "Save prompt to library"],
   ["1 / 2", "Style Prompt / Full Brief tab"],
+  ["T", "Base prompt shape: labelled ⇄ tags"],
   ["?", "Open this dialog"],
   ["Esc", "Close dialog"],
   ["Ctrl+Z / Ctrl+Y", "Undo / redo"]
@@ -1012,6 +1086,7 @@ function initEvents() {
     else if (key === "g") { showBatch = !showBatch; renderOutput(); }
     else if (key === "s") { e.preventDefault(); saveToLibrary(); }
     else if (key === "h") toggleSoundLite();
+    else if (key === "t") setPromptShape(state.promptShape === "tags" ? "labelled" : "tags");
     else if (key === "n") toggleNoStop();
     else if (key === "b") toggleHideBeats();
     else if (key === "1") { currentTab = "style"; renderOutput(); }
@@ -1064,6 +1139,7 @@ window.__NF = {
   buildStylePrompt: () => buildStylePrompt(state),
   buildFullBrief: () => buildFullBrief(state),
   scorePrompt: () => scorePrompt(state),
+  promptReport: () => promptReport(state),
   encodeState, decodeState, defaultState, clone, rollBatch,
   persistSessionNow, loadPersistedSession,
   startFresh, getBatch: () => batch.slice(),

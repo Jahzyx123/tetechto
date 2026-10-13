@@ -10,6 +10,54 @@ Rebuilt from the legacy 600 KB single-file app into plain ES modules with
 python3 -m http.server 8080      # then open http://localhost:8080
 ```
 
+## What's new in v4.7 — the base prompt upgrade
+
+Everything in this release targets the one artefact that actually reaches
+Suno: **the 1000-character Style Prompt**. The box was already full — the
+question was what each character buys, and how much of what you rolled is
+really in there.
+
+* **Information-density packing** (`engine/density.js`) — the packer used to
+  choose details by *length* (shortest first). It now chooses by *new
+  information per character*: a detail that says something the box has not
+  said yet outbids a shorter one that repeats it, and a detail made only of
+  words already present is pushed to the back of the queue. Measured with
+  the new `npm run bench` (deterministic, 120 rolls per shape, mixed
+  techno/no-techno): the labelled box goes from **35.6 details at 0.878
+  unique-word ratio** to **35.9 at 0.889** — same fill, less repetition —
+  and tag shape lifts the count to **41.1 details at 0.906**.
+* **Squeeze + refill** — the generated pools append force-words to phrases
+  that already carry one (`perc colour drive`, `swing push drive`,
+  `cross-rhythm web drive`…). Those chains are collapsed at output (max two
+  per prompt, never inside a hyphenated compound like `mega-drive`, never
+  when it would shorten a clause past two words) and the reclaimed
+  characters are immediately spent on details that had no room. The
+  squeeze is idempotent and deterministic, so share links stay exact.
+* **Base-prompt meter** — the output panel now shows the box itself:
+  characters used against the 1000-char cap, free characters left, **how
+  many rolled details are in the prompt**, a live unique-word readout, and
+  the list of details that did **not** fit.
+* **📌 Pins** — every detail in that "didn't fit" list is a button. Click it
+  and the detail is packed *first* on the next build, so anything you
+  actually want in the prompt gets in (pinned details stay listed so you can
+  release them). Pins travel in the share link.
+* **Tag shape** (`T`) — Suno also takes a flat comma-tag list. Dropping the
+  section labels frees ~90 characters and that space goes straight into
+  more rolled details: **41.1 vs 35.9 details per roll** (+15%), unique-word
+  ratio 0.906 vs 0.889, vocabulary variety 88.7 vs 84.3. Labelled stays the
+  default; the toggle sits in the meter and the choice is part of the state.
+* **Scoring reads content, not labels** — section coverage and melodic
+  clarity were label-based (`/Bass:/`, `/Lead:/`), which scored a tag-shape
+  prompt 0/100 for sections it demonstrably carried. Both criteria now
+  check the rolled values themselves, so MAX hill-climbs the same way in
+  both shapes (tag shape: section coverage 98.9, melodic clarity 92).
+* Test suite: **829 checks** (up from 687), including the new density
+  suite — box cap on every roll in both shapes, report honesty (everything
+  it calls "in" is in, everything it calls "missing" is missing), squeeze
+  determinism/idempotence, pin effectiveness, share-link round-trip of the
+  new fields, and the jsdom UI checks for the meter, the shape toggle and
+  pinning.
+
 ## What's new in v4.6 — everything "rolled" in the prompt now rolls deep
 
 The last fixed prose surfaces that flow into the Suno prompt — the
@@ -284,6 +332,9 @@ happen once at load in `engine/state.js` (`EXPANSION_STATS`,
   (maximize score over N tries). This replaces the legacy Idea Engine,
   MORE MAGIC, MEGA BATCH, Anthem Builder and Genetic/Quantum Labs.
 * `share.js` — state ↔ URL-safe base64 (`?s=…` share links).
+* `density.js` — information density for the 1000-char box: content-word
+  index, filler squeeze, variety/coverage readouts, and the packing score
+  the base prompt is built with.
 
 ### Modes
 
@@ -323,8 +374,9 @@ Both are first-class; the mode toggle sits in the header.
 
 ```
 npm start            # static server (or any other file server)
-npm test             # node tests/run.js — 687 checks incl. the jsdom UI boot
+npm test             # node tests/run.js — 829 checks incl. the jsdom UI boot
 npm run lint         # eslint flat config — zero errors is the bar
+npm run bench        # deterministic base-prompt benchmark (details packed, chars, variety)
 npm run extract      # regenerate /data from Tetech-main/index.html
 npm run build        # optional single-file dist/index.html for sharing
 ```
@@ -341,6 +393,7 @@ has no runtime dependencies.
 | `B` / `H` / `N` | 🥁 Hide beats · 🔇 Sound-lite · ⛓ No-stop |
 | `L` / `C` / `S` | Library · A/B compare · save to library |
 | `1` / `2` | Style Prompt / Full Brief tab |
+| `T` | Base prompt shape: labelled ⇄ tags |
 | `?` | Shortcuts dialog |
 | `Esc` | Close any dialog |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo |

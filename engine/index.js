@@ -1,5 +1,6 @@
 /* engine/index.js — barrel export for the whole engine. */
 export * from "./prng.js";
+export * from "./density.js";
 export * from "./music.js";
 export * from "./genre.js";
 export * from "./world.js";
